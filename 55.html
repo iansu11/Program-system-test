@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>解題系統 V55 (多重題庫入口版)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
+    <style>
+        :root {
+            /* === V55: Color Variables === */
+            --bg-page-light: #f3f4f6;
+            --bg-pane-light: #e0e0e0;   
+            --text-pane-light: #1f2937; 
+            --bg-pane-dark: #1e1e1e;    
+            --text-pane-dark: #e0e0e0;  
+            --bg-header-blue: #1e3a8a;  
+            
+            --bg-card: #ffffff;
+            --accent: #3b82f6;
+            --border-light: #cccccc; 
+            --border-dark: #333;
+            --success: #10b981;
+            --fail: #ef4444;
+            --warning: #f59e0b;
+            --ai-color: #8b5cf6;
+            
+            --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: var(--bg-page-light);
+            color: #333;
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        body.resizing { cursor: row-resize !important; user-select: none; }
+        body.resizing iframe { pointer-events: none; }
+
+        /* === 題庫入口大廳專屬樣式 === */
+        #view-portal {
+            display: none; 
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            color: white;
+            text-align: center;
+            z-index: 1000;
+        }
+        .portal-container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 50px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+            max-width: 900px;
+            width: 90%;
+        }
+        .portal-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin-top: 40px;
+        }
+        .bank-btn {
+            background: white;
+            color: #1e3a8a;
+            padding: 25px 20px;
+            border-radius: 12px;
+            font-size: 1.3rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        .bank-btn:hover {
+            transform: translateY(-5px) scale(1.02);
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+        }
+        .bank-desc {
+            font-size: 0.85rem;
+            font-weight: normal;
+            opacity: 0.8;
+        }
+
+        /* === Components === */
+        button { cursor: pointer; transition: 0.2s; }
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; font-weight: bold; font-size: 0.9rem; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+        .btn-sm { padding: 7px 14px; font-size: 0.85rem; }
+        
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { background: #2563eb; }
+        
+        .btn-outline { background: transparent; border: 1px solid #999; color: #555; }
+        .btn-outline:hover { background: rgba(0,0,0,0.05); color: #000; border-color: #666; }
+        
+        .header-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; }
+        .header-btn:hover { background: rgba(255,255,255,0.2); border-color: white; }
+
+        .btn-copy { background-color: #375a7f; color: white; }
+        .btn-copy:hover { background-color: #2b4764; }
+        .btn-paste { background-color: #4b5563; color: white; }
+        .btn-paste:hover { background-color: #374151; }
+        .btn-reset { background-color: #6c757d; color: white; }
+        .btn-reset:hover { background-color: #5a6268; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-success:hover { background: #059669; }
+        .btn-danger { background: var(--fail); color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-warning { background: var(--warning); color: #1e1e1e; }
+        .btn-ai { background: var(--ai-color); color: white; } 
+        .btn-ai:hover { background: #7c3aed; }
+        
+        textarea, input, select {
+            background: #fff; color: #333; border: 1px solid #ccc;
+            padding: 10px; border-radius: 6px; font-family: 'Segoe UI', sans-serif; box-sizing: border-box;
+        }
+        textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+        /* === Shared Page Header === */
+        .page-header {
+            display: flex; justify-content: space-between; align-items: center; 
+            margin-bottom: 20px; border-bottom: 1px solid var(--border-light); padding-bottom: 15px; flex-shrink: 0;
+            flex-wrap: wrap; gap: 15px; /* 允許換行以容納更多按鈕 */
+        }
+        .page-header h2 { color: #111827; }
+
+        /* === View 1: Category List === */
+        /* V55 將最大寬度調寬至 1400px 以適應更多按鈕 */
+        #view-categories { padding: 40px; max-width: 1400px; margin: 0 auto; width: 100%; overflow-y: auto; display: none; }
+        .cat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 25px; }
+        @media (max-width: 1100px) { .cat-grid { grid-template-columns: repeat(2, 1fr); } }
+
+        .cat-card {
+            background: var(--bg-card); border: 1px solid var(--border-light); padding: 25px;
+            border-radius: 12px; cursor: pointer; text-align: center; position: relative;
+            transition: transform 0.2s, box-shadow 0.2s; display: flex; flex-direction: column; justify-content: center; min-height: 140px;
+            box-shadow: var(--card-shadow);
+        }
+        .cat-card:hover { transform: translateY(-5px); border-color: var(--accent); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+        .cat-title { font-size: 1.4rem; font-weight: bold; margin-bottom: 8px; color: #1f2937; }
+        .cat-count { color: #6b7280; font-size: 1rem; }
+        .cat-actions { position: absolute; top: 10px; right: 10px; display: none; gap:5px; }
+        .cat-card:hover .cat-actions { display: flex; }
+
+        /* === View 2: Problem List === */
+        #view-problem-list { padding: 40px; max-width: 900px; margin: 0 auto; width: 100%; overflow-y: auto; display: none; }
+        .prob-list-container { display: flex; flex-direction: column; gap: 12px; }
+        .prob-item {
+            background: var(--bg-card); border: 1px solid var(--border-light); padding: 18px 25px;
+            border-radius: 8px; display: flex; justify-content: space-between; align-items: center;
+            cursor: pointer; transition: 0.2s; box-shadow: var(--card-shadow);
+        }
+        .prob-item:hover { background: #fff; filter: brightness(0.97); border-color: var(--accent); transform: translateX(5px); }
+        .prob-title { font-size: 1.1rem; font-weight: 600; color: #1f2937; }
+        .prob-desc-preview { font-size: 0.85rem; color: #6b7280; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
+        
+        .prob-actions { display: flex; gap: 5px; opacity: 0; transition: opacity 0.2s; align-items: center; }
+        .prob-item:hover .prob-actions { opacity: 1; }
+        .prob-btn-icon { background: transparent; border: none; font-size: 1.2rem; padding: 6px 10px; cursor: pointer; transition: 0.2s; border-radius: 4px; }
+        .prob-edit-btn { color: #6b7280; }
+        .prob-edit-btn:hover { color: var(--accent); background: rgba(59, 130, 246, 0.1); }
+        .prob-del-btn { color: #9ca3af; }
+        .prob-del-btn:hover { color: var(--fail); background: rgba(239, 68, 68, 0.1); }
+
+        /* Drag & Drop */
+        .sort-mode .cat-card, .sort-mode .prob-item { border: 2px dashed var(--accent); cursor: grab; background: #eff6ff; }
+        .sort-mode .cat-card *, .sort-mode .prob-item * { pointer-events: none; }
+        .sort-mode .cat-card:active, .sort-mode .prob-item:active { cursor: grabbing; }
+        .dragging { opacity: 0.5; border: 2px solid var(--warning) !important; background: #fffbf0 !important; }
+        .sort-mode .cat-actions, .sort-mode .prob-actions { display: none !important; }
+
+        /* === View 3: Workspace === */
+        #view-workspace { display: none; height: 100%; flex-direction: column; background: var(--bg-page-light); }
+        .ws-header { height: 60px; background: var(--bg-header-blue); border-bottom: 1px solid rgba(0,0,0,0.1); display: flex; align-items: center; padding: 0 20px; justify-content: space-between; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 10; }
+        .ws-container { display: flex; flex: 1; overflow: hidden; }
+        .pane-left { flex: 1; background: var(--bg-pane-light); border-right: 1px solid #ccc; padding: 30px; overflow-y: auto; min-width: 250px; color: var(--text-pane-light); }
+        
+        .problem-content { line-height: 1.8; font-size: 1rem; color: #374151; overflow-wrap: break-word; white-space: normal; font-family: 'Segoe UI', 'Consolas', monospace; }
+        .problem-content p { margin: 0 0 10px 0; min-height: 1.2em; } 
+        .problem-content img { display: block; max-width: 100%; max-height: 500px; height: auto; margin: 15px auto; border-radius: 6px; border: 1px solid #ddd; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .problem-content h1, .problem-content h2, .problem-content h3 { margin-top: 20px; margin-bottom: 10px; color: #111; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+        .problem-content code { background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 0.9em; color: #c2410c; }
+        .problem-content pre { background: #1f2937; color: #f3f4f6; padding: 15px; border-radius: 6px; overflow-x: auto; margin: 15px 0; }
+        .problem-content pre code { background: transparent; color: inherit; padding: 0; }
+
+        .pane-right { flex: 2; display: flex; flex-direction: column; background: var(--bg-pane-dark); color: var(--text-pane-dark); min-width: 400px; position: relative; }
+        .editor-toolbar { padding: 8px 15px; background: #252526; border-bottom: 1px solid #333; display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+        .pane-right select { background: #1e1e1e; border: 1px solid #444; color: #fff; }
+        .pane-right .btn-outline { border-color: #555; color: #ccc; }
+        .pane-right .btn-outline:hover { background: #333; color: #fff; }
+        #editor { flex: 1; font-size: 16px; min-height: 100px; }
+        .resizer-bar { height: 8px; background: #121212; border-top: 1px solid #333; border-bottom: 1px solid #333; cursor: row-resize; transition: background 0.2s; flex-shrink: 0; display: flex; justify-content: center; align-items: center; z-index: 100; user-select: none; }
+        .resizer-bar:hover { background: var(--accent); }
+        .resizer-icon { width: 30px; height: 2px; background: #444; border-radius: 2px; }
+        .console-area { height: 200px; background: #151515; display: flex; flex-direction: column; flex-shrink: 0; min-height: 40px; }
+        #outputLogs { flex: 1; padding: 15px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 0.9rem; color: #ccc; }
+        .console-header { padding: 5px 15px; font-size: 0.8rem; color: #888; background: #252526; border-bottom: 1px solid #333; }
+        .log-case { margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 15px; }
+        .log-header { font-weight: bold; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+        .log-details { background: #202020; border-radius: 4px; padding: 10px; border: 1px solid #333; }
+        .log-label { color: #888; font-size: 0.8rem; margin-bottom: 2px; }
+        .log-value { font-family: 'Consolas', monospace; color: #ccc; white-space: pre-wrap; word-break: break-all; background: #151515; padding: 5px; border-radius: 3px; margin-bottom: 10px; border-left: 2px solid #444; }
+
+        /* === View 4: Admin === */
+        #view-admin { display: none; height: 100%; flex-direction: column; background: var(--bg-page-light); }
+        .admin-toolbar { height: 50px; background: var(--bg-header-blue); border-bottom: 1px solid rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; flex-shrink: 0; color: white; }
+        .admin-content-wrapper { display: flex; flex: 1; overflow: hidden; }
+        
+        .admin-col-left { flex: 0 0 35%; max-width: 35%; display: flex; flex-direction: column; border-right: 1px solid #ccc; padding: 25px; background: var(--bg-pane-light); color: var(--text-pane-light); overflow-y: auto; box-sizing: border-box; }
+        .admin-col-left input, .admin-col-left textarea { background: var(--bg-pane-light); color: #333; border: 1px solid #999; }
+        .admin-col-left input:focus, .admin-col-left textarea:focus { background: #e8e8e8; outline: 2px solid var(--accent); }
+        
+        .admin-col-right { flex: 1; display: flex; flex-direction: column; background: #1a1a1a; min-width: 0; color: #e0e0e0; }
+        .admin-row-top { flex: 2; display: flex; flex-direction: column; padding: 20px; background: #1e1e1e; min-height: 100px; }
+        .admin-row-bottom { flex: 1; display: flex; flex-direction: column; padding: 0; background: #151515; flex-shrink: 0; height: auto; min-height: 100px; }
+        .admin-header-row { position: sticky; top: 0; background: #151515; z-index: 5; padding: 8px 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        #adminTestCases { padding: 20px; overflow-y: auto; flex: 1; }
+        .admin-label { color: #555; font-size: 0.9rem; margin-bottom: 5px; display: block; font-weight: 600; }
+        .admin-col-right textarea { background: #252526; color: #fff; border: 1px solid #444; }
+        .admin-col-right .tc-item { background: #1e1e1e; border: 1px solid #333; border-left: 3px solid var(--warning); padding:10px; margin-bottom:8px; border-radius:4px; }
+        .admin-col-right .tc-item textarea { background: #151515; border: 1px solid #444; min-height: 38px; max-height: 130px; resize: vertical; overflow-y: auto; }
+
+        /* === Modals === */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; justify-content: center; align-items: center; backdrop-filter: blur(2px); }
+        .modal-box { background: #1e1e1e; color: #e0e0e0; padding: 25px; width: 400px; border-radius: 12px; border: 1px solid #333; display: flex; flex-direction: column; gap: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        .modal-box textarea, .modal-box input { background: #121212; color: #fff; border: 1px solid #444; }
+        .modal-box .btn-outline { border-color: #555; color: #ccc; }
+        .modal-box .btn-outline:hover { background: #333; color: #fff; }
+    </style>
+</head>
+<body class="light-mode">
+
+<div id="view-portal">
+    <div class="portal-container">
+        <h1 style="font-size: 2.8rem; margin-bottom: 10px; letter-spacing: 2px;">🚀 解題系統</h1>
+        <p style="font-size: 1.2rem; opacity: 0.9; margin-bottom: 30px;">請選擇您要進入的題庫區塊</p>
+        
+        <div class="portal-grid">
+            <button class="bank-btn" onclick="fetchAndLoadBank('program-1.json')">
+                <span>📚 114-第一學期程式設計</span>
+                <span class="bank-desc">載入 program-1.json</span>
+            </button>
+            
+            <button class="bank-btn" onclick="fetchAndLoadBank('exam.json')">
+                <span>🏆 期中考模擬</span>
+                <span class="bank-desc">載入 exam.json</span>
+            </button>
+
+            <button class="bank-btn" onclick="fetchAndLoadBank('advanced.json')">
+                <span>🔥 進階挑戰區</span>
+                <span class="bank-desc">載入 advanced.json</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<div id="view-categories">
+    <div class="page-header">
+        <div style="display:flex; align-items:center; gap:15px;">
+            <button class="btn btn-outline" onclick="backToPortal()">🏠 回大廳切換題庫</button>
+            <h2 id="currentBankName" style="margin:0; color:var(--bg-header-blue);">📂 目前題庫</h2>
+        </div>
+        
+        <div style="display:flex; gap:10px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
+            <button id="catSortBtn" class="btn btn-outline" onclick="toggleCatSortMode()">⇅ 調整順序</button>
+            <button class="btn btn-outline" onclick="openBackupUI()">📦 備份/還原</button>
+            <button class="btn btn-warning" onclick="resetCurrentBank()">🔄 重新載入本題庫</button>
+            <button class="btn btn-danger" onclick="hardResetAll()">💣 全部重置歸0</button>
+            <button class="btn btn-primary" onclick="createCategory()">+ 新增分類</button>
+        </div>
+    </div>
+    <div id="groupedCategoryContainer"></div>
+</div>
+
+<div id="view-problem-list">
+    <div class="page-header">
+        <div style="display:flex; align-items:center; gap:15px;">
+            <h2 id="currentCatTitle" style="margin:0; color:var(--accent);">分類名稱</h2>
+        </div>
+        <div style="display:flex; gap:10px;">
+            <button id="probSortBtn" class="btn btn-outline" onclick="toggleProbSortMode()">⇅ 調整順序</button>
+            <button class="btn btn-primary" onclick="createProblemInCat()">+ 新增題目</button>
+        </div>
+    </div>
+    <div id="probListContainer" class="prob-list-container"></div>
+    <div id="emptyMsg" style="text-align:center; color:#666; margin-top:50px; display:none;">
+        此分類暫無題目，請點擊右上角新增。
+    </div>
+</div>
+
+<div id="view-workspace">
+    <div class="ws-header">
+        <div style="display:flex; align-items:center;">
+            <span id="wsTitle" style="font-weight:bold; font-size:1.5rem;">題目名稱</span>
+        </div>
+        <div style="display:flex; gap:10px;">
+            <button class="btn btn-ai" onclick="openAIHelperModal()">🤖 AI 診斷 (外連)</button>
+            <button class="header-btn btn-sm" onclick="goToAdmin()">⚙️ 設定</button>
+        </div>
+    </div>
+    <div class="ws-container">
+        <div class="pane-left">
+            <h3 style="margin-top:0; color:var(--accent); border-bottom:1px solid #ccc; padding-bottom:10px;">題目描述</h3>
+            <div id="wsDesc" class="problem-content"></div>
+        </div>
+        <div class="pane-right" id="paneRight">
+            <div class="editor-toolbar">
+                <select id="langSelect" onchange="changeWorkspaceLang()">
+                    <option value="cpp">C++ (GCC)</option>
+                    <option value="python">Python 3</option>
+                </select>
+                <button class="btn btn-outline btn-sm" onclick="adjustFontSize(-1)" title="縮小字體" style="margin-left:10px;">A-</button>
+                <button class="btn btn-outline btn-sm" onclick="adjustFontSize(1)" title="放大字體">A+</button>
+                <div style="flex:1;"></div>
+                
+                <button id="modeBtn" class="btn btn-outline btn-sm" onclick="toggleCompileMode()" style="color:var(--accent); border-color:var(--accent);">☁️ 雲端編譯 (Wandbox)</button>
+                
+                <button class="btn btn-copy btn-sm" onclick="copyCode()">📋 複製程式碼</button>
+                <button class="btn btn-reset btn-sm" onclick="resetCode()">🔄 重置</button>
+                <button class="btn btn-success btn-sm" id="runBtn" onclick="runCode()">▶️ 執行測試</button>
+            </div>
+            <div id="editor"></div>
+            <div class="resizer-bar" id="dragHandle"><div class="resizer-icon"></div></div>
+            <div class="console-area" id="consoleArea">
+                <div class="console-header">執行結果 (Output)</div>
+                <div id="outputLogs"><div style="color:#666;">等待執行...</div></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="view-admin">
+    <div class="admin-toolbar">
+        <h2 style="margin:0;">⚙️ 題目設定</h2>
+        <div style="display:flex; gap:10px;">
+            <button class="btn btn-warning" onclick="openModelAnswerUI()">🔑 示範解答</button>
+            <button class="btn btn-primary" onclick="saveAdminAndBack()">💾 儲存並返回</button>
+        </div>
+    </div>
+    <div class="admin-content-wrapper">
+        <div class="admin-col-left">
+            <h3 style="margin-top:0; color:var(--accent);">基本資訊</h3>
+            <label class="admin-label">題目名稱</label>
+            <input type="text" id="editTitle" style="margin-bottom:20px;">
+            
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                <label class="admin-label" style="margin:0;">題目描述 (所見即所得 + 圖片支援)</label>
+                <div>
+                    <input type="file" id="localImgInput" accept="image/*" style="display:none" onchange="handleLocalImageUpload()">
+                    <button class="btn btn-outline btn-sm" style="border-color:#999;" onclick="insertImageURL()">🔗 連結</button>
+                    <button class="btn btn-outline btn-sm" style="border-color:#999;" onclick="document.getElementById('localImgInput').click()">📂 上傳</button>
+                </div>
+            </div>
+            
+            <textarea id="editDesc" style="flex:1; resize:none;" placeholder="在此輸入題目內容。支援圖片語法 ![Alt](URL)。\n直接輸入星號圖形 (***) 或減號 (---) 即可顯示，不會自動變成列表或線條。"></textarea>
+        </div>
+        <div class="admin-col-right">
+            <div class="admin-row-top" id="adminRowTop">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                    <label class="admin-label" style="color:var(--success); margin:0;">Code Template (預設程式碼)</label>
+                    <select id="adminLangSelect" style="padding:2px 5px; height:auto;" onchange="changeAdminLang()">
+                        <option value="cpp">編輯 C++ 模板</option>
+                        <option value="python">編輯 Python 3 模板</option>
+                    </select>
+                </div>
+                <textarea id="editTemplate" style="flex:1; resize:none; font-family:'Consolas',monospace;" spellcheck="false" placeholder="// 設定該語言的預設代碼..."></textarea>
+            </div>
+            <div class="resizer-bar" id="adminDragHandle"><div class="resizer-icon"></div></div>
+            <div class="admin-row-bottom" id="adminRowBottom">
+                <div class="admin-header-row">
+                    <span class="admin-label" style="color:#aaa; margin:0;">測試資料 (每行代表一筆輸入/輸出)</span>
+                    <button class="btn btn-outline btn-sm" onclick="addTestCaseUI()">+ 新增</button>
+                </div>
+                <div id="adminTestCases"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="backupModal" class="modal">
+    <div class="modal-box" style="width:500px;">
+        <h3>📦 全站資料備份/還原 (V55)</h3>
+        <textarea id="backupStr" style="width:100%; height:100px; margin-bottom:10px;" placeholder="Backup Code (Base64)..."></textarea>
+        
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-bottom:15px;">
+             <input type="file" id="backupFileInput" accept=".txt,.json" style="display:none" onchange="handleBackupFile(this)">
+             <button class="btn btn-outline btn-sm" onclick="document.getElementById('backupFileInput').click()">📂 選擇檔案</button>
+             <button class="btn btn-success btn-sm" onclick="downloadBackup()">💾 下載檔案</button>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; border-top:1px solid #333; padding-top:15px;">
+            <button class="btn btn-outline" onclick="document.getElementById('backupModal').style.display='none'">關閉</button>
+            <div style="display:flex; gap:10px;">
+                <button class="btn btn-primary" onclick="copyBackupCode()">📋 複製代碼</button>
+                <button class="btn btn-danger" onclick="execRestore()">⚠️ 開始還原</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="modelAnswerModal" class="modal">
+    <div class="modal-box" style="width:600px; max-width:90%; height:500px;">
+        <h3>🔑 設定示範解答 (Model Answer)</h3>
+        <textarea id="modelAnswerInput" style="flex:1; resize:none; font-family:'Consolas',monospace; background:#1e1e1e; color:#d4d4d4; border:1px solid #333; padding:10px;" placeholder="#include <iostream>..." spellcheck="false"></textarea>
+        <div style="display:flex; justify-content:flex-end; margin-top:10px;">
+            <div style="display:flex; gap:10px;">
+                <button class="btn btn-outline" onclick="document.getElementById('modelAnswerModal').style.display='none'">取消</button>
+                <button class="btn btn-copy" onclick="copyModelAnswer()">📋 複製解答</button>
+                <button class="btn btn-paste" onclick="pasteModelAnswer()">📋 貼上解答</button>
+                <button class="btn btn-primary" onclick="saveModelAnswerFromModal()">✅ 暫存設定</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="aiHelperModal" class="modal">
+    <div class="modal-box" style="width:600px; max-width:90%; height:550px;">
+        <h3 style="display:flex; align-items:center; gap:10px; color:var(--ai-color); margin-top:0;">
+            🤖 AI 程式碼診斷 (傳送門)
+        </h3>
+        <p style="color:#aaa; font-size:0.9rem; margin-top:-5px;">
+            系統已自動生成提問內容。您可以選擇僅複製文字，或複製並開啟新分頁。
+        </p>
+        <textarea id="aiPromptOutput" style="flex:1; resize:none; font-family:'Consolas',monospace; background:#1e1e1e; color:#d4d4d4; border:1px solid #333; padding:10px; font-size:0.9rem;" readonly></textarea>
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
+            <button class="btn btn-outline" onclick="document.getElementById('aiHelperModal').style.display='none'">關閉</button>
+            <button class="btn btn-primary" onclick="copyPromptOnly()">📋 僅複製</button>
+            <button class="btn btn-ai" onclick="copyPromptAndOpenGemini()">🚀 複製並前往 Gemini</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let db = { categories: [], problems: [] };
+    let currentCatId = null;
+    let currentProbId = null;
+    let isLocalMode = false;
+    let currentBankFile = ""; 
+    
+    const defaultTemplates = {
+        cpp: `#include <iostream>\nusing namespace std;\n\nint main() {\n    // C++ Solution\n    \n    return 0;\n}`,
+        python: `import sys\n\n# Python Solution\ndef main():\n    # Read input from stdin\n    lines = sys.stdin.read().splitlines()\n    # Write logic here\n    pass\n\nif __name__ == "__main__":\n    main()`
+    };
+
+    let editor = null;
+    let isCatSortMode = false;
+    let isProbSortMode = false;
+    let currentFontSize = 16;
+    
+    let adminTempTemplates = { cpp: "", python: "" };
+    let currentAdminLang = 'cpp';
+
+    window.onload = async function() {
+        editor = ace.edit("editor");
+        editor.setTheme("ace/theme/twilight");
+        editor.session.setMode("ace/mode/c_cpp");
+        editor.setFontSize(currentFontSize);
+        editor.setShowPrintMargin(false);
+        editor.session.on('change', function(delta) { 
+             const p = db.problems.find(x => x.id === currentProbId);
+             if(p) {
+                 const lang = document.getElementById('langSelect').value;
+                 p['code_' + lang] = editor.getValue();
+                 saveToLocal();
+             }
+        });
+
+        initResizer();
+        initAdminResizer(); 
+        enableTabInTextarea('editTemplate');
+        enableTabInTextarea('modelAnswerInput');
+
+        const saved = localStorage.getItem('oj_v15_data');
+        const savedBankName = localStorage.getItem('oj_v15_bank_name'); 
+        const urlParams = new URLSearchParams(window.location.search);
+        const probIdParam = urlParams.get('probId');
+
+        if (saved && JSON.parse(saved).categories) { // 即使是空的也要能載入 (為了支援全部重置)
+            db = JSON.parse(saved);
+            if (savedBankName) {
+                currentBankFile = savedBankName;
+                document.getElementById('currentBankName').innerText = "📂 目前題庫: " + savedBankName;
+            } else {
+                document.getElementById('currentBankName').innerText = "📂 自訂新題庫 (空白)";
+            }
+            
+            if (probIdParam) {
+                history.replaceState({ view: 'workspace', probId: probIdParam, fromAdmin: false }, '', '');
+                _enterWorkspaceInternal(probIdParam, false);
+            } else {
+                finishLoading(); 
+            }
+        } else {
+            showView('view-portal');
+        }
+    };
+
+    async function fetchAndLoadBank(jsonFile) {
+        const btnText = event.target.closest('.bank-btn').querySelector('span').innerText;
+        try {
+            const noCacheUrl = jsonFile + '?t=' + new Date().getTime();
+            const response = await fetch(noCacheUrl);
+            
+            if (response.ok) {
+                db = await response.json();
+                currentBankFile = jsonFile;
+                saveToLocal();
+                localStorage.setItem('oj_v15_bank_name', btnText);
+                
+                document.getElementById('currentBankName').innerText = "📂 目前題庫: " + btnText;
+                
+                history.replaceState({ view: 'categories' }, '', window.location.pathname);
+                finishLoading();
+            } else {
+                throw new Error("伺服器回傳狀態：" + response.status);
+            }
+        } catch (err) {
+            alert("載入失敗！請確認 GitHub 上是否存在該檔案：\n" + jsonFile + "\n\n詳細錯誤：" + err.message);
+        }
+    }
+
+    function finishLoading() {
+        window.addEventListener('popstate', handlePopState);
+        renderCategoryList();
+        showView('view-categories');
+    }
+
+    function backToPortal() {
+        if (confirm("回到大廳會清除目前的作答暫存，並允許您選擇其他題庫。確定嗎？")) {
+            localStorage.removeItem('oj_v15_data');
+            localStorage.removeItem('oj_v15_bank_name');
+            window.location.href = window.location.pathname; 
+        }
+    }
+
+    // === V55: 保留並強化重新載入功能 ===
+    function resetCurrentBank() {
+        if (!currentBankFile || currentBankFile.includes("自訂新題庫")) {
+            alert("目前是空白的自訂狀態，無法從伺服器重新載入。");
+            return;
+        }
+        if (confirm("⚠️ 警告：這將會清除您目前在瀏覽器中的所有新增與作答紀錄，並重新從伺服器下載題庫。確定嗎？")) {
+            const bankName = localStorage.getItem('oj_v15_bank_name') || currentBankFile;
+            window.event = { target: { closest: () => ({ querySelector: () => ({ innerText: bankName }) }) } };
+            fetchAndLoadBank(currentBankFile);
+        }
+    }
+
+    // === V55: 新增「全部重置歸 0」功能 ===
+    function hardResetAll() {
+        if (confirm("⚠️ 警告：這將會清除所有資料（包含目前畫面上與暫存的題目），讓系統回到「完全空白」的狀態，以便您從零開始建立新題庫！\n\n確定要全部重置歸 0 嗎？")) {
+            db = { categories: [], problems: [] };
+            currentBankFile = "自訂新題庫";
+            localStorage.setItem('oj_v15_bank_name', '自訂新題庫 (空白)');
+            saveToLocal();
+            document.getElementById('currentBankName').innerText = "📂 自訂新題庫 (空白)";
+            renderCategoryList();
+        }
+    }
+
+    function handlePopState(event) {
+        const state = event.state;
+        if (!state) {
+            const saved = localStorage.getItem('oj_v15_data');
+            if(saved) {
+                currentCatId = null;
+                renderCategoryList();
+                showView('view-categories');
+            } else {
+                showView('view-portal');
+            }
+            return;
+        }
+
+        if (state.view === 'categories') {
+            currentCatId = null;
+            renderCategoryList();
+            showView('view-categories');
+        } else if (state.view === 'problem-list') {
+            currentCatId = state.catId;
+            renderProblemList();
+            showView('view-problem-list');
+        } else if (state.view === 'workspace') {
+            currentProbId = state.probId;
+            _enterWorkspaceInternal(state.probId, state.fromAdmin);
+        } else if (state.view === 'admin') {
+            currentProbId = state.probId;
+            _goToAdminInternal();
+        }
+    }
+
+    function enableTabInTextarea(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('keydown', function(e) {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = this.selectionStart;
+                const end = this.selectionEnd;
+                this.value = this.value.substring(0, start) + "    " + this.value.substring(end);
+                this.selectionStart = this.selectionEnd = start + 4;
+            }
+        });
+    }
+
+    function autoResize(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
+
+    function initResizer() {
+        const handle = document.getElementById('dragHandle');
+        const consoleArea = document.getElementById('consoleArea');
+        const paneRight = document.getElementById('paneRight');
+        const editorDiv = document.getElementById('editor');
+        
+        handle.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            document.body.classList.add('resizing');
+            editorDiv.style.pointerEvents = 'none';
+
+            const startY = e.clientY;
+            const startHeight = consoleArea.offsetHeight;
+            const paneHeight = paneRight.offsetHeight;
+            
+            function doDrag(e) {
+                const deltaY = startY - e.clientY;
+                let newHeight = startHeight + deltaY;
+                if (newHeight < 40) newHeight = 40;
+                if (newHeight > paneHeight - 100) newHeight = paneHeight - 100;
+                consoleArea.style.height = newHeight + 'px';
+                editor.resize();
+            }
+            
+            function stopDrag() {
+                document.removeEventListener('mousemove', doDrag);
+                document.removeEventListener('mouseup', stopDrag);
+                document.body.classList.remove('resizing');
+                editorDiv.style.pointerEvents = 'auto';
+            }
+            
+            document.addEventListener('mousemove', doDrag);
+            document.addEventListener('mouseup', stopDrag);
+        });
+    }
+
+    function initAdminResizer() {
+        const handle = document.getElementById('adminDragHandle');
+        const bottomArea = document.getElementById('adminRowBottom');
+        
+        handle.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            document.body.classList.add('resizing');
+            
+            const startHeight = bottomArea.offsetHeight;
+            bottomArea.style.flex = 'none'; 
+            bottomArea.style.height = startHeight + 'px'; 
+
+            const startY = e.clientY;
+            
+            function doDrag(e) {
+                const deltaY = startY - e.clientY;
+                let newHeight = startHeight + deltaY;
+                if (newHeight < 100) newHeight = 100;
+                bottomArea.style.height = newHeight + 'px';
+            }
+            
+            function stopDrag() {
+                document.removeEventListener('mousemove', doDrag);
+                document.removeEventListener('mouseup', stopDrag);
+                document.body.classList.remove('resizing');
+            }
+            
+            document.addEventListener('mousemove', doDrag);
+            document.addEventListener('mouseup', stopDrag);
+        });
+    }
+
+    function showView(viewId) {
+        isCatSortMode = false; isProbSortMode = false; updateSortUI();
+        if (viewId === 'view-categories' || viewId === 'view-problem-list') {
+            document.body.classList.add('light-mode');
+        } else {
+            document.body.classList.remove('light-mode');
+        }
+        ['view-portal', 'view-categories', 'view-problem-list', 'view-workspace', 'view-admin'].forEach(id => {
+            document.getElementById(id).style.display = 'none';
+        });
+        
+        if (viewId === 'view-portal' || viewId === 'view-workspace' || viewId === 'view-admin') {
+            document.getElementById(viewId).style.display = 'flex';
+        } else {
+            document.getElementById(viewId).style.display = 'block';
+        }
+        
+        if(viewId === 'view-workspace' && editor) setTimeout(() => editor.resize(), 50);
+    }
+
+    function openCategory(id) { 
+        history.pushState({ view: 'problem-list', catId: id }, '', '');
+        currentCatId = id; renderProblemList(); showView('view-problem-list'); 
+    }
+
+    function enterWorkspace(id, fromAdmin = false) {
+        history.pushState({ view: 'workspace', probId: id, fromAdmin: fromAdmin }, '', '');
+        _enterWorkspaceInternal(id, fromAdmin);
+    }
+
+    function _enterWorkspaceInternal(id, fromAdmin = false) {
+        currentProbId = id;
+        const p = db.problems.find(x => x.id === id);
+        
+        if (p.tpl_cpp === undefined) p.tpl_cpp = p.templateCode || defaultTemplates.cpp;
+        if (p.tpl_python === undefined) p.tpl_python = defaultTemplates.python;
+
+        if (!fromAdmin) {
+            p.code_cpp = p.tpl_cpp;
+            p.code_python = p.tpl_python;
+            saveToLocal();
+        } else {
+            if (p.code_cpp === undefined) p.code_cpp = p.tpl_cpp;
+            if (p.code_python === undefined) p.code_python = p.tpl_python;
+        }
+        
+        document.getElementById('wsTitle').innerText = p.title;
+        const rawContent = p.desc || "";
+        document.getElementById('wsDesc').innerHTML = parseContent(rawContent);
+        
+        const lang = p.lastLang || 'cpp';
+        document.getElementById('langSelect').value = lang;
+        
+        updateEditorForLang(lang);
+        
+        document.getElementById('outputLogs').innerHTML = '<div style="color:#666;">準備就緒。</div>';
+        showView('view-workspace');
+    }
+
+    function goToAdmin() { 
+        history.pushState({ view: 'admin', probId: currentProbId }, '', '');
+        _goToAdminInternal();
+    }
+
+    function _goToAdminInternal() {
+        const p = db.problems.find(x => x.id === currentProbId); 
+        document.getElementById('editTitle').value = p.title; 
+        document.getElementById('editDesc').value = p.desc; 
+        
+        adminTempTemplates.cpp = p.tpl_cpp || p.templateCode || defaultTemplates.cpp;
+        adminTempTemplates.python = p.tpl_python || defaultTemplates.python;
+        
+        document.getElementById('adminLangSelect').value = 'cpp';
+        currentAdminLang = 'cpp';
+        document.getElementById('editTemplate').value = adminTempTemplates.cpp;
+
+        const c = document.getElementById('adminTestCases'); 
+        c.innerHTML = ''; 
+        (p.testCases || []).forEach(tc => addTestCaseUI(tc.input, tc.output)); 
+        
+        setTimeout(() => { document.querySelectorAll('#adminTestCases textarea').forEach(ta => autoResize(ta)); }, 0);
+        showView('view-admin'); 
+    }
+
+    function enableDragSort(containerId, itemClass, onUpdateOrder) {
+        const container = document.getElementById(containerId);
+        let draggedItem = null;
+        container.addEventListener('dragstart', (e) => { if(!e.target.classList.contains(itemClass)) return; draggedItem = e.target; e.target.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+        container.addEventListener('dragend', (e) => { if(!e.target.classList.contains(itemClass)) return; e.target.classList.remove('dragging'); draggedItem = null; onUpdateOrder(); });
+        
+        container.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            if (!draggedItem) return;
+            const target = e.target.closest(`.${itemClass}`);
+            if (target && target !== draggedItem) {
+                const children = [...container.children];
+                const curIndex = children.indexOf(draggedItem);
+                const targetIndex = children.indexOf(target);
+                if (curIndex > targetIndex) { container.insertBefore(draggedItem, target); } 
+                else { container.insertBefore(draggedItem, target.nextSibling); }
+            }
+        });
+        container.addEventListener('dragover', (e) => { e.preventDefault(); });
+    }
+
+    function toggleCatSortMode() { isCatSortMode = !isCatSortMode; updateSortUI(); renderCategoryList(); }
+    
+    function renderCategoryList() {
+        const container = document.getElementById('groupedCategoryContainer');
+        container.innerHTML = '';
+
+        const grid = document.createElement('div');
+        grid.className = 'cat-grid';
+        grid.id = 'main-cat-grid';
+        
+        if (isCatSortMode) { grid.classList.add('sort-mode'); enableDragSort(grid.id, 'cat-card', saveCategoryOrder); }
+
+        db.categories.forEach(cat => {
+            const probCount = db.problems.filter(p => p.catId === cat.id).length;
+            const card = document.createElement('div');
+            card.className = 'cat-card'; card.setAttribute('draggable', isCatSortMode); card.dataset.id = cat.id;
+            card.innerHTML = `<div class="cat-title">${cat.name}</div><div class="cat-count">${probCount} 題</div><div class="cat-actions"><button class="btn btn-outline btn-sm" onclick="editCategory(event, '${cat.id}')">✏️</button><button class="btn btn-outline btn-sm" onclick="deleteCategory(event, '${cat.id}')" style="color:#f44747; border-color:#f44747;">🗑️</button></div>`;
+            card.onclick = (e) => { if(!isCatSortMode && !e.target.closest('button')) openCategory(cat.id); };
+            grid.appendChild(card);
+        });
+
+        container.appendChild(grid);
+    }
+
+    function saveCategoryOrder() { 
+        const cards = document.querySelectorAll('.cat-card'); 
+        const newOrder = []; 
+        cards.forEach(card => { const cat = db.categories.find(c => c.id === card.dataset.id); if(cat) newOrder.push(cat); }); 
+        db.categories = newOrder; saveToLocal(); 
+    }
+    
+    function createCategory() { 
+        if(isCatSortMode) return; 
+        const name = prompt("新分類名稱："); 
+        if(!name) return;
+        db.categories.push({ id: Date.now().toString(), name: name }); 
+        saveToLocal(); 
+        renderCategoryList(); 
+    }
+    function editCategory(e, id) { 
+        e.stopPropagation(); 
+        const cat = db.categories.find(c => c.id === id); 
+        const newName = prompt("修改分類名稱：", cat.name); 
+        if(newName) { 
+            cat.name = newName; 
+            saveToLocal(); 
+            renderCategoryList(); 
+        } 
+    }
+    function deleteCategory(e, id) { e.stopPropagation(); if(!confirm("確定刪除？此分類下的題目也會一併刪除。")) return; db.categories = db.categories.filter(c => c.id !== id); db.problems = db.problems.filter(p => p.catId !== id); saveToLocal(); renderCategoryList(); }
+
+    function toggleProbSortMode() { isProbSortMode = !isProbSortMode; updateSortUI(); renderProblemList(); }
+    function renderProblemList() {
+        const cat = db.categories.find(c => c.id === currentCatId);
+        document.getElementById('currentCatTitle').innerText = cat ? cat.name : "分類題庫";
+        const container = document.getElementById('probListContainer');
+        if (isProbSortMode) { container.classList.add('sort-mode'); } else { container.classList.remove('sort-mode'); const newCont = container.cloneNode(false); container.parentNode.replaceChild(newCont, container); }
+        const currentContainer = document.getElementById('probListContainer');
+        if (isProbSortMode) { enableDragSort('probListContainer', 'prob-item', saveProblemOrder); }
+        currentContainer.innerHTML = '';
+        const catProblems = db.problems.filter(p => p.catId === currentCatId);
+        const emptyMsg = document.getElementById('emptyMsg');
+        if (catProblems.length === 0) { emptyMsg.style.display = 'block'; } else {
+            emptyMsg.style.display = 'none';
+            catProblems.forEach(p => {
+                const item = document.createElement('div');
+                item.className = 'prob-item'; item.setAttribute('draggable', isProbSortMode); item.dataset.id = p.id;
+                item.onclick = (e) => { 
+                    if(!isProbSortMode && !e.target.closest('button')) {
+                        const baseUrl = window.location.href.split('?')[0];
+                        window.open(`${baseUrl}?probId=${p.id}`, '_blank');
+                    } 
+                };
+                item.innerHTML = `
+                    <div style="flex:1; overflow:hidden;">
+                        <div class="prob-title">${p.title}</div>
+                        <div class="prob-desc-preview">${p.desc.substring(0, 50)}...</div>
+                    </div>
+                    <div class="prob-actions">
+                        <button class="prob-btn-icon prob-edit-btn" onclick="editProblemInList(event, '${p.id}')" title="修改題目">✏️</button>
+                        <button class="prob-btn-icon prob-del-btn" onclick="deleteProblemInList(event, '${p.id}')" title="刪除題目">🗑️</button>
+                    </div>
+                `;
+                currentContainer.appendChild(item);
+            });
+        }
+    }
+    function saveProblemOrder() {
+        const items = document.querySelectorAll('#probListContainer .prob-item');
+        const newCatProbs = []; items.forEach(item => { const p = db.problems.find(x => x.id === item.dataset.id); if(p) newCatProbs.push(p); });
+        const otherProbs = db.problems.filter(p => p.catId !== currentCatId);
+        db.problems = otherProbs.concat(newCatProbs); saveToLocal();
+    }
+    function createProblemInCat() { 
+        if(isProbSortMode) return; 
+        const title = prompt("題目名稱："); 
+        if(title) { 
+            db.problems.push({ 
+                id: Date.now().toString(), 
+                catId: currentCatId, 
+                title: title, 
+                desc: "請輸入題目描述...", 
+                tpl_cpp: defaultTemplates.cpp, 
+                tpl_python: defaultTemplates.python,
+                code_cpp: defaultTemplates.cpp,
+                code_python: defaultTemplates.python,
+                testCases: [{ input: "1 2", output: "3" }], 
+                lastLang: 'cpp' 
+            }); 
+            saveToLocal(); 
+            renderProblemList(); 
+        } 
+    }
+    
+    function editProblemInList(e, id) { e.stopPropagation(); currentProbId = id; goToAdmin(); }
+    function deleteProblemInList(e, id) { e.stopPropagation(); if(confirm("確定刪除？")) { db.problems = db.problems.filter(p => p.id !== id); saveToLocal(); renderProblemList(); } }
+    function updateSortUI() {
+        const catBtn = document.getElementById('catSortBtn'); const probBtn = document.getElementById('probSortBtn');
+        if(catBtn) { catBtn.innerText = isCatSortMode ? "✅ 完成排序" : "⇅ 調整順序"; catBtn.className = isCatSortMode ? "btn btn-danger" : "btn btn-outline"; }
+        if(probBtn) { probBtn.innerText = isProbSortMode ? "✅ 完成排序" : "⇅ 調整順序"; probBtn.className = isProbSortMode ? "btn btn-danger" : "btn btn-outline"; }
+    }
+    
+    function changeWorkspaceLang() {
+        const p = db.problems.find(x => x.id === currentProbId);
+        const newLang = document.getElementById('langSelect').value;
+        p.lastLang = newLang; 
+        saveToLocal();
+        updateEditorForLang(newLang);
+    }
+    
+    function updateEditorForLang(lang) {
+        const p = db.problems.find(x => x.id === currentProbId);
+        if (lang === 'cpp') {
+            editor.session.setMode("ace/mode/c_cpp");
+            editor.setValue(p.code_cpp || p.tpl_cpp || defaultTemplates.cpp, -1);
+        } else if (lang === 'python') {
+            editor.session.setMode("ace/mode/python");
+            editor.setValue(p.code_python || p.tpl_python || defaultTemplates.python, -1);
+        }
+    }
+
+    function toggleCompileMode() {
+        isLocalMode = !isLocalMode;
+        const btn = document.getElementById('modeBtn');
+        if (isLocalMode) {
+            btn.innerHTML = "🔌 本機編譯 (Local:3000)";
+            btn.style.color = "var(--success)";
+            btn.style.borderColor = "var(--success)";
+        } else {
+            btn.innerHTML = "☁️ 雲端編譯 (Wandbox)";
+            btn.style.color = "var(--accent)";
+            btn.style.borderColor = "var(--accent)";
+        }
+    }
+
+    function parseContent(text) {
+        if (!text) return "";
+        let escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        const imageRegex = /!\[(.*?)\]\((.*?)\)/g;
+        let html = escaped.replace(imageRegex, (match, alt, url) => { return `<img src="${url}" alt="${alt}">`; });
+        html = html.replace(/\n/g, "<br>");
+        return html;
+    }
+
+    function resetCode() { 
+        if(!confirm("重置程式碼到初始模板？")) return; 
+        const p = db.problems.find(x => x.id === currentProbId); 
+        const lang = document.getElementById('langSelect').value;
+        if (lang === 'cpp') {
+            p.code_cpp = p.tpl_cpp || defaultTemplates.cpp;
+            editor.setValue(p.code_cpp, -1);
+        } else {
+            p.code_python = p.tpl_python || defaultTemplates.python;
+            editor.setValue(p.code_python, -1);
+        }
+        saveToLocal(); 
+    }
+    function adjustFontSize(change) { currentFontSize += change; if (currentFontSize < 10) currentFontSize = 10; if (currentFontSize > 30) currentFontSize = 30; editor.setFontSize(currentFontSize); }
+
+    function copyCode() {
+        const code = editor.getValue();
+        if(!code) { alert("沒有程式碼可以複製！"); return; }
+        navigator.clipboard.writeText(code).then(() => { alert("✅ 程式碼已複製到剪貼簿！"); }).catch(() => { const ta = document.createElement("textarea"); ta.value = code; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); alert("✅ 程式碼已複製到剪貼簿！"); });
+    }
+    
+    function changeAdminLang() {
+        const newLang = document.getElementById('adminLangSelect').value;
+        const currentText = document.getElementById('editTemplate').value;
+        adminTempTemplates[currentAdminLang] = currentText;
+        currentAdminLang = newLang;
+        document.getElementById('editTemplate').value = adminTempTemplates[newLang];
+    }
+
+    function saveAdminAndBack() { 
+        const p = db.problems.find(x => x.id === currentProbId); 
+        p.title = document.getElementById('editTitle').value; 
+        p.desc = document.getElementById('editDesc').value; 
+        
+        adminTempTemplates[currentAdminLang] = document.getElementById('editTemplate').value;
+        p.tpl_cpp = adminTempTemplates.cpp;
+        p.tpl_python = adminTempTemplates.python;
+        
+        const inputs = document.querySelectorAll('.tc-input'); 
+        const outputs = document.querySelectorAll('.tc-output'); 
+        p.testCases = []; 
+        for(let i=0; i<inputs.length; i++) p.testCases.push({ input: inputs[i].value, output: outputs[i].value }); 
+        
+        saveToLocal(); 
+        enterWorkspace(currentProbId, true); 
+    }
+    
+    function insertImageToDesc() {
+        const url = prompt("請輸入圖片網址 (URL)：", "https://");
+        if (url) {
+            const descArea = document.getElementById('editDesc');
+            const markdown = `\n\n![圖片](${url})\n\n`;
+            descArea.value += markdown;
+            descArea.focus();
+        }
+    }
+    function insertImageURL() { insertImageToDesc(); } 
+    
+    function handleLocalImageUpload() {
+        const fileInput = document.getElementById('localImgInput');
+        const file = fileInput.files[0];
+        if (!file) return;
+        if (file.size > 2 * 1024 * 1024) { alert("⚠️ 圖片過大！建議使用 2MB 以下的圖片，以免瀏覽器卡頓。"); }
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const base64 = e.target.result;
+            const descArea = document.getElementById('editDesc');
+            const markdown = `\n\n![本地圖片](${base64})\n\n`;
+            descArea.value += markdown;
+            descArea.focus();
+            fileInput.value = ''; 
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function openModelAnswerUI() { const p = db.problems.find(x => x.id === currentProbId); document.getElementById('modelAnswerInput').value = p.modelAnswer || ""; document.getElementById('modelAnswerModal').style.display = 'flex'; }
+    function saveModelAnswerFromModal() { const p = db.problems.find(x => x.id === currentProbId); p.modelAnswer = document.getElementById('modelAnswerInput').value; document.getElementById('modelAnswerModal').style.display = 'none'; saveToLocal(); }
+
+    function copyModelAnswer() {
+        const text = document.getElementById('modelAnswerInput');
+        if (!text.value.trim()) { alert("沒有示範解答可以複製！"); return; }
+        text.select(); document.execCommand('copy'); alert("✅ 示範解答已複製！");
+    }
+
+    async function pasteModelAnswer() {
+        try {
+            const text = await navigator.clipboard.readText();
+            document.getElementById('modelAnswerInput').value = text;
+            alert("✅ 已貼上解答！");
+        } catch (err) { alert("⚠️ 瀏覽器阻擋或無法讀取剪貼簿，請直接在文字框中按 Ctrl+V 貼上。"); }
+    }
+
+    async function runCode() {
+        const p = db.problems.find(x => x.id === currentProbId); 
+        if(!p.testCases || p.testCases.length === 0) { alert("無測資"); return; }
+        
+        const btn = document.getElementById('runBtn'); 
+        const logs = document.getElementById('outputLogs'); 
+        const code = editor.getValue(); 
+        const lang = document.getElementById('langSelect').value; 
+        
+        btn.disabled = true; btn.innerText = "..."; logs.innerHTML = '';
+        
+        for(let i=0; i<p.testCases.length; i++) {
+            const tempDiv = document.createElement('div');
+            tempDiv.className = 'log-case';
+            tempDiv.innerHTML = `<span style="color:yellow">Case ${i+1}: Running...</span>`;
+            logs.appendChild(tempDiv);
+            tempDiv.scrollIntoView({ behavior: "smooth", block: "end" });
+
+            try {
+                let act = "";
+                let exp = (p.testCases[i].output || "").trim();
+                let inputData = p.testCases[i].input || "";
+
+                if (!isLocalMode) {
+                    const apiCompiler = lang === 'cpp' ? 'gcc-head' : 'cpython-head';
+                    const res = await fetch('https://wandbox.org/api/compile.json', { 
+                        method: 'POST', 
+                        headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify({ compiler: apiCompiler, code: code, stdin: inputData }) 
+                    }).then(r => r.json());
+                    
+                    if (res.compiler_error || res.compiler_message) {
+                        let errorMsg = res.compiler_error || res.compiler_message || "Unknown Compilation Error";
+                        tempDiv.innerHTML = `<div class="log-header" style="color:var(--fail)">❌ Case ${i+1}: 編譯錯誤 (Compile Error)</div><div class="log-details"><pre style="color:#f44747; margin:0;">${errorMsg}</pre></div>`;
+                        const stopDiv = document.createElement('div');
+                        stopDiv.style.textAlign = "center"; stopDiv.style.padding = "10px"; stopDiv.style.color = "#aaa";
+                        stopDiv.innerHTML = "⚠️ 因編譯失敗，已終止後續測試。";
+                        logs.appendChild(stopDiv);
+                        break; 
+                    }
+
+                    if (res.status !== "0" && res.program_error) {
+                          let errorMsg = res.program_error || "Runtime Error";
+                          tempDiv.innerHTML = `<div class="log-header" style="color:var(--fail)">❌ Case ${i+1}: 執行錯誤 (Runtime Error)</div><div class="log-details"><pre style="color:#f44747; margin:0;">${errorMsg}</pre></div>`;
+                          continue; 
+                    }
+                    act = (res.program_message || "").trim();
+
+                } else {
+                    try {
+                        const res = await fetch('http://127.0.0.1:3000/run', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ lang: lang, code: code, stdin: inputData })
+                        }).then(r => r.json());
+
+                        if (res.error) {
+                            let errType = res.type || "Error";
+                            let errMsg = res.message || "Unknown Error";
+                            tempDiv.innerHTML = `<div class="log-header" style="color:var(--fail)">❌ Case ${i+1}: ${errType}</div><div class="log-details"><pre style="color:#f44747; margin:0;">${errMsg}</pre></div>`;
+                            if (errType === '編譯錯誤') {
+                                const stopDiv = document.createElement('div');
+                                stopDiv.style.textAlign = "center"; stopDiv.style.padding = "10px"; stopDiv.style.color = "#aaa";
+                                stopDiv.innerHTML = "⚠️ 因編譯失敗，已終止後續測試。";
+                                logs.appendChild(stopDiv);
+                                break;
+                            }
+                            continue;
+                        }
+                        act = (res.output || "").trim();
+                    } catch (err) {
+                        tempDiv.innerHTML = `<div class="log-header" style="color:var(--fail)">❌ Case ${i+1}: 無法連線至本機伺服器</div><div class="log-details" style="color:#aaa; font-size:0.85rem;">請確認 Python Flask 伺服器 (server.py) 是否已啟動於 port 3000。</div>`;
+                        break;
+                    }
+                }
+
+                let pass = act.replace(/\r\n/g, "\n") === exp.replace(/\r\n/g, "\n");
+                let statusHtml = pass ? `<span style="color:var(--success)">✅ Case ${i+1}: 通過測試 (Accepted)</span>` : `<span style="color:var(--fail)">❌ Case ${i+1}: 答案錯誤 (Wrong Answer)</span>`;
+                let actStyle = pass ? "color:#fff; border-left-color:var(--success);" : "color:var(--warning); border-left-color:var(--fail);";
+                
+                tempDiv.innerHTML = `<div class="log-header">${statusHtml}</div><div class="log-details"><div class="log-label">輸入 (Input):</div><div class="log-value">${inputData}</div><div class="log-label">預期輸出 (Expected):</div><div class="log-value">${exp}</div><div class="log-label">您的輸出 (Actual):</div><div class="log-value" style="${actStyle}">${act || "(無輸出)"}</div></div>`;
+
+            } catch(e) { 
+                tempDiv.innerHTML = `<div style="color:var(--fail)">❌ Case ${i+1}: 網路連線錯誤</div><div class="log-details" style="color:#aaa; font-size:0.85rem;">無法連線至編譯伺服器，請檢查網路狀態。</div>`; 
+                break;
+            }
+        }
+        btn.disabled = false; btn.innerText = "▶️ 執行測試";
+    }
+
+    function openAIHelperModal() {
+        const p = db.problems.find(x => x.id === currentProbId);
+        const code = editor.getValue();
+        if (!code || code.trim() === "") { alert("程式碼為空，無法分析。"); return; }
+        const promptText = `請擔任程式設計助教，幫我檢查以下程式碼的邏輯是否正確，並給予修正建議（請用繁體中文回答）：\n\n【題目名稱】：${p.title}\n【題目描述】：\n${p.desc}\n\n【我的程式碼】：\n\`\`\`${document.getElementById('langSelect').value}\n${code}\n\`\`\``;
+        document.getElementById('aiPromptOutput').value = promptText;
+        document.getElementById('aiHelperModal').style.display = 'flex';
+    }
+    function copyPromptOnly() { const text = document.getElementById('aiPromptOutput'); text.select(); document.execCommand('copy'); alert("✅ 內容已複製！\n您可以切換到現有的 AI 對話視窗貼上。"); document.getElementById('aiHelperModal').style.display = 'none'; }
+    function copyPromptAndOpenGemini() { const text = document.getElementById('aiPromptOutput'); text.select(); document.execCommand('copy'); alert("📋 內容已複製！\n即將為您打開 Gemini，請在對話框中貼上 (Ctrl+V) 即可。"); window.open('https://gemini.google.com/app', '_blank'); document.getElementById('aiHelperModal').style.display = 'none'; }
+
+    function addTestCaseUI(input='', output='') {
+        const div = document.createElement('div');
+        div.className = 'tc-item';
+        div.innerHTML = `<button class="btn btn-outline" style="float:right; border:none; padding:0 5px;" onclick="this.parentElement.remove()">✕</button><div style="display:flex; gap:10px; margin-top:5px;"><textarea class="tc-input" rows="1" oninput="autoResize(this)" style="flex:1" placeholder="Input">${input}</textarea><textarea class="tc-output" rows="1" oninput="autoResize(this)" style="flex:1" placeholder="Output">${output}</textarea></div>`;
+        document.getElementById('adminTestCases').appendChild(div);
+        if(input || output) { const tas = div.querySelectorAll('textarea'); tas.forEach(ta => autoResize(ta)); }
+    }
+    
+    function saveToLocal() { localStorage.setItem('oj_v15_data', JSON.stringify(db)); }
+    
+    function downloadBackup() {
+        const date = new Date().toISOString().slice(0, 10);
+        let filename = prompt("請輸入檔案名稱 (無需副檔名):", `oj_backup_${date}`);
+        if (!filename) return; 
+        if (!filename.endsWith(".txt") && !filename.endsWith(".json")) { filename += ".txt"; }
+        const backupData = btoa(encodeURIComponent(JSON.stringify(db)));
+        const blob = new Blob([backupData], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    }
+
+    function handleBackupFile(input) {
+        const file = input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            let content = e.target.result.trim();
+            if (content.startsWith("{") || content.startsWith("[")) {
+                try { JSON.parse(content); content = btoa(encodeURIComponent(content)); } catch(err) { alert("檔案格式錯誤"); return; }
+            }
+            document.getElementById('backupStr').value = content;
+        };
+        reader.readAsText(file);
+        input.value = ''; 
+    }
+
+    function openBackupUI() { document.getElementById('backupStr').value = btoa(encodeURIComponent(JSON.stringify(db))); document.getElementById('backupModal').style.display = 'flex'; }
+    function copyBackupCode() { document.getElementById('backupStr').select(); document.execCommand('copy'); alert("已複製"); }
+    function execRestore() {
+        if(!confirm("這將覆蓋現有所有資料，確定？")) return;
+        try {
+            const data = JSON.parse(decodeURIComponent(atob(document.getElementById('backupStr').value)));
+            if(data.categories && data.problems) { db = data; saveToLocal(); window.location.href = window.location.pathname; } else { throw new Error(); }
+        } catch(e) { alert("代碼無效"); }
+    }
+</script>
+</body>
+</html>
