@@ -256,9 +256,9 @@
                 <span class="bank-desc">載入 program-1.json</span>
             </button>
             
-            <button class="bank-btn" onclick="fetchAndLoadBank('exam.json')">
-                <span>🏆 期中考模擬</span>
-                <span class="bank-desc">載入 exam.json</span>
+            <button class="bank-btn" onclick="fetchAndLoadBank('program-oop.json')">
+                <span>🏆 114-第二學期物件導向</span>
+                <span class="bank-desc">載入 program-oop.json</span>
             </button>
 
             <button class="bank-btn" onclick="fetchAndLoadBank('advanced.json')">
@@ -565,7 +565,7 @@
         if (confirm("⚠️ 警告：這將會清除所有資料（包含目前畫面上與暫存的題目），讓系統回到「完全空白」的狀態，以便您從零開始建立新題庫！\n\n確定要全部重置歸 0 嗎？")) {
             db = { categories: [], problems: [] };
             currentBankFile = "自訂新題庫";
-            localStorage.setItem('oj_v15_bank_name', '自訂新題庫');
+            localStorage.setItem('oj_v15_bank_name', '自訂新題庫 ');
             saveToLocal();
             document.getElementById('currentBankName').innerText = "📂 自訂新題庫 ";
             renderCategoryList();
