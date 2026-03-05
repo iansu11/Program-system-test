@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>解題系統 V55 (多重題庫入口版)</title>
+    <title>解題系統 V56 (多重題庫入口版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
     <style>
         :root {
-            /* === V55: Color Variables === */
+            /* === V56: Color Variables === */
             --bg-page-light: #f3f4f6;
             --bg-pane-light: #e0e0e0;   
             --text-pane-light: #1f2937; 
@@ -135,12 +135,11 @@
         .page-header {
             display: flex; justify-content: space-between; align-items: center; 
             margin-bottom: 20px; border-bottom: 1px solid var(--border-light); padding-bottom: 15px; flex-shrink: 0;
-            flex-wrap: wrap; gap: 15px; /* 允許換行以容納更多按鈕 */
+            flex-wrap: wrap; gap: 15px;
         }
         .page-header h2 { color: #111827; }
 
         /* === View 1: Category List === */
-        /* V55 將最大寬度調寬至 1400px 以適應更多按鈕 */
         #view-categories { padding: 40px; max-width: 1400px; margin: 0 auto; width: 100%; overflow-y: auto; display: none; }
         .cat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 25px; }
         @media (max-width: 1100px) { .cat-grid { grid-template-columns: repeat(2, 1fr); } }
@@ -241,6 +240,11 @@
         .modal-box textarea, .modal-box input { background: #121212; color: #fff; border: 1px solid #444; }
         .modal-box .btn-outline { border-color: #555; color: #ccc; }
         .modal-box .btn-outline:hover { background: #333; color: #fff; }
+
+        /* === History Feature === */
+        .hist-item { padding: 12px; border-bottom: 1px solid #333; cursor: pointer; transition: 0.2s; }
+        .hist-item:hover { background: #2a2a2a; }
+        .hist-item.active { border-left: 3px solid var(--accent); background: #222; }
     </style>
 </head>
 <body class="light-mode">
@@ -348,6 +352,7 @@
     <div class="admin-toolbar">
         <h2 style="margin:0;">⚙️ 題目設定</h2>
         <div style="display:flex; gap:10px;">
+            <button class="btn btn-outline header-btn" onclick="openHistoryModal()">📜 執行紀錄</button>
             <button class="btn btn-warning" onclick="openModelAnswerUI()">🔑 示範解答</button>
             <button class="btn btn-primary" onclick="saveAdminAndBack()">💾 儲存並返回</button>
         </div>
@@ -394,7 +399,7 @@
 
 <div id="backupModal" class="modal">
     <div class="modal-box" style="width:500px;">
-        <h3>📦 資料備份/還原 (V55)</h3>
+        <h3>📦 資料備份/還原 (V56)</h3>
         <textarea id="backupStr" style="width:100%; height:100px; margin-bottom:10px;" placeholder="Backup Code (Base64)..."></textarea>
         
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-bottom:15px;">
@@ -441,6 +446,27 @@
             <button class="btn btn-outline" onclick="document.getElementById('aiHelperModal').style.display='none'">關閉</button>
             <button class="btn btn-primary" onclick="copyPromptOnly()">📋 僅複製</button>
             <button class="btn btn-ai" onclick="copyPromptAndOpenGemini()">🚀 複製並前往 Gemini</button>
+        </div>
+    </div>
+</div>
+
+<div id="historyModal" class="modal">
+    <div class="modal-box" style="width:800px; max-width:95%; height:600px;">
+        <h3 style="margin-top:0;">📜 歷史執行紀錄</h3>
+        <p style="color:#aaa; font-size:0.9rem; margin-top:-5px; margin-bottom:10px;">此處保留您每次點擊「執行測試」的程式碼紀錄（最多保留最新 50 筆）。</p>
+        
+        <div style="display:flex; flex:1; gap:15px; overflow:hidden;">
+            <div style="flex:1; overflow-y:auto; background:#121212; border:1px solid #333; border-radius:6px; min-width:200px;" id="historyList">
+                </div>
+            <div style="flex:2; display:flex; flex-direction:column;">
+                <div style="color:#aaa; font-size:0.9rem; margin-bottom:5px;">當時執行的程式碼：</div>
+                <textarea id="historyCodeView" style="flex:1; resize:none; font-family:'Consolas',monospace; background:#1e1e1e; color:#ccc; border:1px solid #333; padding:10px;" readonly></textarea>
+            </div>
+        </div>
+        
+        <div style="display:flex; justify-content:space-between; margin-top:15px; flex-shrink:0;">
+            <button class="btn btn-danger" onclick="clearProblemHistory()">🗑️ 清空此題紀錄</button>
+            <button class="btn btn-outline" onclick="document.getElementById('historyModal').style.display='none'">關閉</button>
         </div>
     </div>
 </div>
@@ -565,7 +591,7 @@
         if (confirm("⚠️ 警告：這將會清除所有資料（包含目前畫面上與暫存的題目），讓系統回到「完全空白」的狀態，以便您從零開始建立新題庫！\n\n確定要全部重置歸 0 嗎？")) {
             db = { categories: [], problems: [] };
             currentBankFile = "自訂新題庫";
-            localStorage.setItem('oj_v15_bank_name', '自訂新題庫 ');
+            localStorage.setItem('oj_v15_bank_name', '自訂新題庫 (空白)');
             saveToLocal();
             document.getElementById('currentBankName').innerText = "📂 自訂新題庫 ";
             renderCategoryList();
@@ -813,10 +839,7 @@
             grid.appendChild(card);
         });
 
-        // 必須先將 grid 加到 DOM 中，才能透過 getElementById 找到它來綁定事件
         container.appendChild(grid);
-        
-        // 在 grid 存在於畫面後，再綁定拖曳排序功能
         if (isCatSortMode) { enableDragSort(grid.id, 'cat-card', saveCategoryOrder); }
     }
 
@@ -903,7 +926,8 @@
                 code_cpp: defaultTemplates.cpp,
                 code_python: defaultTemplates.python,
                 testCases: [{ input: "1 2", output: "3" }], 
-                lastLang: 'cpp' 
+                lastLang: 'cpp',
+                executionHistory: [] // 新增紀錄陣列
             }); 
             saveToLocal(); 
             renderProblemList(); 
@@ -1063,6 +1087,9 @@
         
         btn.disabled = true; btn.innerText = "..."; logs.innerHTML = '';
         
+        let passCount = 0;
+        let isCompileError = false;
+
         for(let i=0; i<p.testCases.length; i++) {
             const tempDiv = document.createElement('div');
             tempDiv.className = 'log-case';
@@ -1090,6 +1117,7 @@
                         stopDiv.style.textAlign = "center"; stopDiv.style.padding = "10px"; stopDiv.style.color = "#aaa";
                         stopDiv.innerHTML = "⚠️ 因編譯失敗，已終止後續測試。";
                         logs.appendChild(stopDiv);
+                        isCompileError = true;
                         break; 
                     }
 
@@ -1117,6 +1145,7 @@
                                 stopDiv.style.textAlign = "center"; stopDiv.style.padding = "10px"; stopDiv.style.color = "#aaa";
                                 stopDiv.innerHTML = "⚠️ 因編譯失敗，已終止後續測試。";
                                 logs.appendChild(stopDiv);
+                                isCompileError = true;
                                 break;
                             }
                             continue;
@@ -1124,11 +1153,13 @@
                         act = (res.output || "").trim();
                     } catch (err) {
                         tempDiv.innerHTML = `<div class="log-header" style="color:var(--fail)">❌ Case ${i+1}: 無法連線至本機伺服器</div><div class="log-details" style="color:#aaa; font-size:0.85rem;">請確認 Python Flask 伺服器 (server.py) 是否已啟動於 port 3000。</div>`;
+                        isCompileError = true;
                         break;
                     }
                 }
 
                 let pass = act.replace(/\r\n/g, "\n") === exp.replace(/\r\n/g, "\n");
+                if (pass) passCount++;
                 let statusHtml = pass ? `<span style="color:var(--success)">✅ Case ${i+1}: 通過測試 (Accepted)</span>` : `<span style="color:var(--fail)">❌ Case ${i+1}: 答案錯誤 (Wrong Answer)</span>`;
                 let actStyle = pass ? "color:#fff; border-left-color:var(--success);" : "color:var(--warning); border-left-color:var(--fail);";
                 
@@ -1136,10 +1167,76 @@
 
             } catch(e) { 
                 tempDiv.innerHTML = `<div style="color:var(--fail)">❌ Case ${i+1}: 網路連線錯誤</div><div class="log-details" style="color:#aaa; font-size:0.85rem;">無法連線至編譯伺服器，請檢查網路狀態。</div>`; 
+                isCompileError = true;
                 break;
             }
         }
+
+        // --- 儲存執行紀錄到後台 ---
+        let finalStatus = "";
+        if (isCompileError) {
+            finalStatus = `<span style="color:var(--fail)">❌ 編譯或連線失敗</span>`;
+        } else if (passCount === p.testCases.length) {
+            finalStatus = `<span style="color:var(--success)">✅ 全數通過 (${passCount}/${p.testCases.length})</span>`;
+        } else {
+            finalStatus = `<span style="color:var(--warning)">⚠️ 部分通過 (${passCount}/${p.testCases.length})</span>`;
+        }
+
+        if (!p.executionHistory) p.executionHistory = [];
+        // 將新紀錄加到最前面
+        p.executionHistory.unshift({
+            time: new Date().toLocaleString('zh-TW', { hour12: false }),
+            lang: lang,
+            code: code,
+            status: finalStatus
+        });
+        // 最多保留 50 筆紀錄
+        if (p.executionHistory.length > 50) p.executionHistory.pop();
+        saveToLocal();
+
         btn.disabled = false; btn.innerText = "▶️ 執行測試";
+    }
+
+    // --- 新增：開啟歷史紀錄視窗 ---
+    function openHistoryModal() {
+        const p = db.problems.find(x => x.id === currentProbId);
+        const listDiv = document.getElementById('historyList');
+        document.getElementById('historyCodeView').value = "";
+        listDiv.innerHTML = "";
+
+        if (!p.executionHistory || p.executionHistory.length === 0) {
+            listDiv.innerHTML = "<div style='color:#666; text-align:center; padding:30px; font-size:1.1rem;'>尚無執行紀錄</div>";
+        } else {
+            p.executionHistory.forEach((hist, idx) => {
+                const item = document.createElement('div');
+                item.className = 'hist-item';
+                item.onclick = () => {
+                    // 移除其他項目的 active 樣式
+                    document.querySelectorAll('.hist-item').forEach(el => el.classList.remove('active'));
+                    item.classList.add('active');
+                    document.getElementById('historyCodeView').value = hist.code;
+                };
+
+                item.innerHTML = `
+                    <div style="font-size:0.85rem; color:#aaa;">${hist.time} <span style="color:var(--accent)">[${hist.lang}]</span></div>
+                    <div style="margin-top:5px; font-weight:bold;">${hist.status}</div>
+                `;
+                listDiv.appendChild(item);
+                
+                // 預設選取第一筆（最新的一筆）
+                if (idx === 0) item.click();
+            });
+        }
+        document.getElementById('historyModal').style.display = 'flex';
+    }
+
+    // --- 新增：清空單題紀錄 ---
+    function clearProblemHistory() {
+        if (!confirm("確定要清空這題的所有歷史執行紀錄嗎？此動作無法復原。")) return;
+        const p = db.problems.find(x => x.id === currentProbId);
+        p.executionHistory = [];
+        saveToLocal();
+        openHistoryModal(); // 重新整理畫面
     }
 
     function openAIHelperModal() {
@@ -1180,7 +1277,6 @@
         document.body.removeChild(a);
     }
 
-    // 取得檔案後，暫存檔名
     function handleBackupFile(input) {
         const file = input.files[0];
         if (!file) return;
