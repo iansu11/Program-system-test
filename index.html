@@ -359,7 +359,7 @@
             <input type="text" id="editTitle" style="margin-bottom:20px;">
             
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
-                <label class="admin-label" style="margin:0;">題目描述 (所見即所得 + 圖片支援)</label>
+                <label class="admin-label" style="margin:0;">題目描述 </label>
                 <div>
                     <input type="file" id="localImgInput" accept="image/*" style="display:none" onchange="handleLocalImageUpload()">
                     <button class="btn btn-outline btn-sm" style="border-color:#999;" onclick="insertImageURL()">🔗 連結</button>
@@ -394,7 +394,7 @@
 
 <div id="backupModal" class="modal">
     <div class="modal-box" style="width:500px;">
-        <h3>📦 全站資料備份/還原 (V55)</h3>
+        <h3>📦 資料備份/還原 (V55)</h3>
         <textarea id="backupStr" style="width:100%; height:100px; margin-bottom:10px;" placeholder="Backup Code (Base64)..."></textarea>
         
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-bottom:15px;">
@@ -451,6 +451,7 @@
     let currentProbId = null;
     let isLocalMode = false;
     let currentBankFile = ""; 
+    let pendingRestoreFileName = ""; 
     
     const defaultTemplates = {
         cpp: `#include <iostream>\nusing namespace std;\n\nint main() {\n    // C++ Solution\n    \n    return 0;\n}`,
@@ -490,13 +491,13 @@
         const urlParams = new URLSearchParams(window.location.search);
         const probIdParam = urlParams.get('probId');
 
-        if (saved && JSON.parse(saved).categories) { // 即使是空的也要能載入 (為了支援全部重置)
+        if (saved && JSON.parse(saved).categories) { 
             db = JSON.parse(saved);
             if (savedBankName) {
                 currentBankFile = savedBankName;
                 document.getElementById('currentBankName').innerText = "📂 目前題庫: " + savedBankName;
             } else {
-                document.getElementById('currentBankName').innerText = "📂 自訂新題庫 (空白)";
+                document.getElementById('currentBankName').innerText = "📂 自訂新題庫 ";
             }
             
             if (probIdParam) {
@@ -548,7 +549,6 @@
         }
     }
 
-    // === V55: 保留並強化重新載入功能 ===
     function resetCurrentBank() {
         if (!currentBankFile || currentBankFile.includes("自訂新題庫")) {
             alert("目前是空白的自訂狀態，無法從伺服器重新載入。");
@@ -561,14 +561,13 @@
         }
     }
 
-    // === V55: 新增「全部重置歸 0」功能 ===
     function hardResetAll() {
         if (confirm("⚠️ 警告：這將會清除所有資料（包含目前畫面上與暫存的題目），讓系統回到「完全空白」的狀態，以便您從零開始建立新題庫！\n\n確定要全部重置歸 0 嗎？")) {
             db = { categories: [], problems: [] };
             currentBankFile = "自訂新題庫";
-            localStorage.setItem('oj_v15_bank_name', '自訂新題庫 (空白)');
+            localStorage.setItem('oj_v15_bank_name', '自訂新題庫');
             saveToLocal();
-            document.getElementById('currentBankName').innerText = "📂 自訂新題庫 (空白)";
+            document.getElementById('currentBankName').innerText = "📂 自訂新題庫 ";
             renderCategoryList();
         }
     }
@@ -803,7 +802,7 @@
         grid.className = 'cat-grid';
         grid.id = 'main-cat-grid';
         
-        if (isCatSortMode) { grid.classList.add('sort-mode'); enableDragSort(grid.id, 'cat-card', saveCategoryOrder); }
+        if (isCatSortMode) { grid.classList.add('sort-mode'); }
 
         db.categories.forEach(cat => {
             const probCount = db.problems.filter(p => p.catId === cat.id).length;
@@ -814,7 +813,11 @@
             grid.appendChild(card);
         });
 
+        // 必須先將 grid 加到 DOM 中，才能透過 getElementById 找到它來綁定事件
         container.appendChild(grid);
+        
+        // 在 grid 存在於畫面後，再綁定拖曳排序功能
+        if (isCatSortMode) { enableDragSort(grid.id, 'cat-card', saveCategoryOrder); }
     }
 
     function saveCategoryOrder() { 
@@ -1177,9 +1180,11 @@
         document.body.removeChild(a);
     }
 
+    // 取得檔案後，暫存檔名
     function handleBackupFile(input) {
         const file = input.files[0];
         if (!file) return;
+        pendingRestoreFileName = file.name; 
         const reader = new FileReader();
         reader.onload = function(e) {
             let content = e.target.result.trim();
@@ -1192,17 +1197,35 @@
         input.value = ''; 
     }
 
-    function openBackupUI() { document.getElementById('backupStr').value = btoa(encodeURIComponent(JSON.stringify(db))); document.getElementById('backupModal').style.display = 'flex'; }
+    function openBackupUI() { 
+        pendingRestoreFileName = ""; 
+        document.getElementById('backupStr').value = btoa(encodeURIComponent(JSON.stringify(db))); 
+        document.getElementById('backupModal').style.display = 'flex'; 
+    }
+    
     function copyBackupCode() { document.getElementById('backupStr').select(); document.execCommand('copy'); alert("已複製"); }
+    
     function execRestore() {
         if(!confirm("這將覆蓋現有所有資料，確定？")) return;
         try {
             const data = JSON.parse(decodeURIComponent(atob(document.getElementById('backupStr').value)));
-            if(data.categories && data.problems) { db = data; saveToLocal(); window.location.href = window.location.pathname; } else { throw new Error(); }
-        } catch(e) { alert("代碼無效"); }
+            if(data.categories && data.problems) { 
+                
+                let defaultName = pendingRestoreFileName || "自訂還原題庫";
+                let finalName = prompt("請為這個還原的題庫命名 (將顯示於上方標題)：", defaultName);
+                if (finalName === null) return; 
+                if (finalName.trim() === "") finalName = "自訂還原題庫";
+                
+                db = data; 
+                localStorage.setItem('oj_v15_bank_name', finalName);
+                saveToLocal(); 
+                window.location.href = window.location.pathname; 
+                
+            } else { 
+                throw new Error(); 
+            }
+        } catch(e) { alert("代碼無效或格式錯誤"); }
     }
 </script>
 </body>
 </html>
-
-
