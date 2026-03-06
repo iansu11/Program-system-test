@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>解題系統 V57 (純帳號與紀錄保存修復版)</title>
+    <title>解題系統 V57 (歷史紀錄永久保存版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
     
     <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
@@ -295,7 +295,7 @@
         </div>
 
         <h2 style="font-size: 2rem; margin-bottom: 10px; margin-top: 0; letter-spacing: 1px;">請選擇題庫</h2>
-        <p style="color: #a7f3d0; margin-bottom: 30px;">🟢 雲端同步已開啟，作答紀錄將自動保存</p>
+        <p style="color: #a7f3d0; margin-bottom: 30px;">🟢 雲端同步已開啟，執行紀錄將永久保存於您的帳號</p>
         
         <div class="portal-grid">
             <button class="bank-btn" onclick="fetchAndLoadBank('program-1.json')">
@@ -397,7 +397,6 @@
         <div style="display:flex; gap:10px;">
             <button class="btn btn-outline header-btn" onclick="openHistoryModal()">📜 執行紀錄</button>
             <button class="btn btn-warning" onclick="openModelAnswerUI()">🔑 示範解答</button>
-            
             <button class="btn btn-primary" onclick="saveAdminAndBack()">💾 儲存並返回</button>
         </div>
     </div>
@@ -515,17 +514,21 @@
 </div>
 
 <script>
-    // ==========================================
-    // 0. Eager Load (預先載入機制)
-    // ==========================================
+    // =========================================================
+    // 0. 終極解耦：將「歷史紀錄」與「題庫 db」徹底分開儲存
+    // =========================================================
     let db = { categories: [], problems: [] };
+    let executionHistories = {}; // 專門存放歷史紀錄的物件: { "probId": [ {time, lang, code, status}, ... ] }
     let currentBankFile = ""; 
-    let currentView = 'view-login'; // 全域變數，紀錄目前的畫面，幫助完美處理「上一頁」
+    let currentView = 'view-login';
 
+    // 預先載入 (Eager Load)，防止新分頁閃退
     const localData = localStorage.getItem('oj_v15_data');
-    if (localData) {
-        try { db = JSON.parse(localData); } catch(e){}
-    }
+    if (localData) { try { db = JSON.parse(localData); } catch(e){} }
+    
+    const localHistory = localStorage.getItem('oj_v15_history');
+    if (localHistory) { try { executionHistories = JSON.parse(localHistory); } catch(e){} }
+    
     const localBank = localStorage.getItem('oj_v15_bank_name');
     if (localBank) currentBankFile = localBank;
 
@@ -585,13 +588,13 @@
         if(confirm("確定要登出嗎？")) {
             auth.signOut().then(() => {
                 localStorage.removeItem('oj_v15_data');
+                localStorage.removeItem('oj_v15_history');
                 localStorage.removeItem('oj_v15_bank_name');
                 window.location.href = window.location.href.split('?')[0]; 
             });
         }
     }
 
-    // 嚴格管理登入後的資料載入順序，防閃退
     auth.onAuthStateChanged(async (user) => {
         if (user) {
             currentUser = user;
@@ -604,7 +607,7 @@
     });
 
     // ==========================================
-    // 3. 雲端資料同步邏輯
+    // 3. 雲端資料同步邏輯 (精準拉取 historyData)
     // ==========================================
     async function loadUserDataFromCloud() {
         if (!currentUser) return;
@@ -614,10 +617,18 @@
             
             if (docSnap.exists) {
                 const data = docSnap.data();
+                
+                // 1. 讀取題庫
                 if (data.dbData) {
                     db = JSON.parse(data.dbData);
                     localStorage.setItem('oj_v15_data', data.dbData); 
                 }
+                // 2. 獨立讀取歷史紀錄，確保它永遠存在！
+                if (data.historyData) {
+                    executionHistories = JSON.parse(data.historyData);
+                    localStorage.setItem('oj_v15_history', data.historyData);
+                }
+                // 3. 讀取標題
                 if (data.bankName) {
                     currentBankFile = data.bankName;
                     localStorage.setItem('oj_v15_bank_name', data.bankName);
@@ -627,10 +638,10 @@
                 }
             } else {
                 db = { categories: [], problems: [] };
+                executionHistories = {};
                 currentBankFile = "";
             }
             
-            // 資料確實載入完畢後，才進行畫面判定
             checkUrlAndLoad();
         } catch (e) { 
             console.error("無法讀取雲端資料：", e); 
@@ -662,13 +673,19 @@
         }
     }
 
+    // 雙重保險：把題庫跟紀錄同時存入 Firebase
     async function saveToLocal() { 
         const dataString = JSON.stringify(db);
+        const historyString = JSON.stringify(executionHistories);
+        
         localStorage.setItem('oj_v15_data', dataString); 
+        localStorage.setItem('oj_v15_history', historyString);
+        
         if (currentUser) {
             try {
                 await firestore.collection('users').doc(currentUser.uid).set({
                     dbData: dataString,
+                    historyData: historyString, // 將紀錄寫入專屬的獨立欄位
                     bankName: localStorage.getItem('oj_v15_bank_name') || currentBankFile,
                     lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                 }, { merge: true });
@@ -677,7 +694,7 @@
     }
 
     // ==========================================
-    // 4. 原有解題系統核心邏輯 (修復路由與暫存)
+    // 4. 原有解題系統核心邏輯 
     // ==========================================
     let currentCatId = null;
     let currentProbId = null;
@@ -703,7 +720,6 @@
         editor.setFontSize(currentFontSize);
         editor.setShowPrintMargin(false);
         
-        // === 修復關鍵：一載入就掛上「瀏覽器上一頁」的偵測器，確保新分頁也能正常使用 ===
         window.addEventListener('popstate', handlePopState);
 
         initResizer();
@@ -712,7 +728,6 @@
         enableTabInTextarea('modelAnswerInput');
     };
 
-    // === 修復關鍵：精準的路由與畫面判定邏輯 ===
     function handlePopState(event) {
         const state = event.state;
         if (!currentUser) return; 
@@ -723,7 +738,6 @@
         else if (goingTo === 'categories') { currentCatId = null; renderCategoryList(); showView('view-categories'); } 
         else if (goingTo === 'problem-list') { currentCatId = state.catId; renderProblemList(); showView('view-problem-list'); } 
         else if (goingTo === 'workspace') { 
-            // 判斷是不是從「設定頁面」按上一頁回來的。如果是，fromAdmin 會是 true，就會保留程式碼進度。
             const fromAdmin = (currentView === 'view-admin');
             currentProbId = state.probId; 
             _enterWorkspaceInternal(state.probId, fromAdmin); 
@@ -731,7 +745,7 @@
         else if (goingTo === 'admin') { currentProbId = state.probId; _goToAdminInternal(); }
     }
 
-    async function fetchAndLoadBank(jsonFile, forceReset = false) {
+    async function fetchAndLoadBank(jsonFile) {
         if(!currentUser) { alert("請先登入帳號！"); return; }
         
         const btnNode = event && event.target ? event.target.closest('.bank-btn') : null;
@@ -742,27 +756,11 @@
             const response = await fetch(noCacheUrl);
             
             if (response.ok) {
-                const newDb = await response.json();
-                
-                // === 核心修復：合併舊有資料，避免帳號登入後點擊題庫把紀錄洗掉 ===
-                if (!forceReset && db && db.problems) {
-                    newDb.problems.forEach(newP => {
-                        const oldP = db.problems.find(p => p.id === newP.id);
-                        if (oldP) {
-                            if (oldP.executionHistory) newP.executionHistory = oldP.executionHistory;
-                            if (oldP.code_cpp !== undefined) newP.code_cpp = oldP.code_cpp;
-                            if (oldP.code_python !== undefined) newP.code_python = oldP.code_python;
-                            if (oldP.lastLang !== undefined) newP.lastLang = oldP.lastLang;
-                            if (oldP.modelAnswer !== undefined) newP.modelAnswer = oldP.modelAnswer;
-                        }
-                    });
-                }
-                
-                db = newDb;
+                // 因為我們已經解耦了 executionHistories，這裡可以直接放心覆蓋題庫 db，完全不用怕把紀錄洗掉！
+                db = await response.json();
                 currentBankFile = btnText;
                 localStorage.setItem('oj_v15_bank_name', btnText);
-                const bankTitle = document.getElementById('currentBankName');
-                if(bankTitle) bankTitle.innerText = "📂 目前題庫: " + btnText;
+                document.getElementById('currentBankName').innerText = "📂 目前題庫: " + btnText;
                 
                 await saveToLocal(); 
                 history.pushState({ view: 'categories' }, '', window.location.pathname);
@@ -779,11 +777,11 @@
 
     function resetCurrentBank() {
         if (!currentBankFile || currentBankFile.includes("自訂新題庫")) { alert("目前是空白狀態，無法重新載入。"); return; }
-        if (confirm("⚠️ 警告：這將會清除您目前的所有作答與執行紀錄，並重新從伺服器下載題庫。確定嗎？")) {
+        if (confirm("⚠️ 警告：這將會清除您目前的所有編輯設定，並重新從伺服器下載題庫。確定嗎？\n(您的執行紀錄已獨立保存，不會被刪除)")) {
             let targetFile = "program-1.json";
             if (currentBankFile.includes("物件導向")) targetFile = "program-oop.json";
             if (currentBankFile.includes("進階")) targetFile = "advanced.json";
-            fetchAndLoadBank(targetFile, true); // true 代表強制重置不合併紀錄
+            fetchAndLoadBank(targetFile);
         }
     }
 
@@ -839,7 +837,7 @@
     }
 
     function showView(viewId) {
-        currentView = viewId; // 記錄當前頁面
+        currentView = viewId; 
         isCatSortMode = false; isProbSortMode = false; updateSortUI();
         if (viewId === 'view-categories' || viewId === 'view-problem-list') document.body.classList.add('light-mode'); else document.body.classList.remove('light-mode');
         ['view-login', 'view-portal', 'view-categories', 'view-problem-list', 'view-workspace', 'view-admin'].forEach(id => { 
@@ -859,7 +857,6 @@
 
     function openCategory(id) { history.pushState({ view: 'problem-list', catId: id }, '', ''); currentCatId = id; renderProblemList(); showView('view-problem-list'); }
 
-    // === 修復關鍵：進入作答區的保留機制 ===
     function _enterWorkspaceInternal(id, fromAdmin = false) {
         currentProbId = id;
         const p = db.problems.find(x => x.id === id);
@@ -868,7 +865,7 @@
         if (p.tpl_cpp === undefined) p.tpl_cpp = p.templateCode || defaultTemplates.cpp;
         if (p.tpl_python === undefined) p.tpl_python = defaultTemplates.python;
         
-        // 如果「不是」從設定頁面按返回回來的，一律還原成預設模板
+        // 若不是從後台返回，嚴格重置作答區
         if (!fromAdmin) { 
             p.code_cpp = p.tpl_cpp; 
             p.code_python = p.tpl_python; 
@@ -878,7 +875,6 @@
         document.getElementById('wsDesc').innerHTML = parseContent(p.desc || "");
         const lang = p.lastLang || 'cpp'; document.getElementById('langSelect').value = lang; 
         
-        // 載入正確的程式碼到編輯器
         if (lang === 'cpp') { editor.session.setMode("ace/mode/c_cpp"); editor.setValue(p.code_cpp, -1); } 
         else if (lang === 'python') { editor.session.setMode("ace/mode/python"); editor.setValue(p.code_python, -1); }
         
@@ -887,10 +883,9 @@
     }
 
     function goToAdmin() { 
-        // 進入設定前，先把目前寫到一半的程式碼「暫存」到題目資料中，這樣回來才不會不見
         const lang = document.getElementById('langSelect').value;
         const p = db.problems.find(x => x.id === currentProbId);
-        if(p) p['code_' + lang] = editor.getValue();
+        if(p) p['code_' + lang] = editor.getValue(); // 進入設定前，暫存寫到一半的內容
         
         history.pushState({ view: 'admin', probId: currentProbId }, '', ''); 
         _goToAdminInternal(); 
@@ -996,7 +991,7 @@
             db.problems.push({ 
                 id: Date.now().toString(), catId: currentCatId, title: title, desc: "請輸入題目描述...", 
                 tpl_cpp: defaultTemplates.cpp, tpl_python: defaultTemplates.python, code_cpp: defaultTemplates.cpp, code_python: defaultTemplates.python,
-                testCases: [{ input: "1 2", output: "3" }], lastLang: 'cpp', executionHistory: [] 
+                testCases: [{ input: "1 2", output: "3" }], lastLang: 'cpp' 
             }); 
             saveToLocal(); renderProblemList(); 
         } 
@@ -1051,7 +1046,6 @@
         adminTempTemplates[currentAdminLang] = currentText; currentAdminLang = newLang; document.getElementById('editTemplate').value = adminTempTemplates[newLang];
     }
 
-    // === 修復關鍵：儲存並返回鍵完美恢復 ===
     async function saveAdminAndBack() { 
         const p = db.problems.find(x => x.id === currentProbId); 
         p.title = document.getElementById('editTitle').value; p.desc = document.getElementById('editDesc').value; 
@@ -1061,8 +1055,6 @@
         p.testCases = []; for(let i=0; i<inputs.length; i++) p.testCases.push({ input: inputs[i].value, output: outputs[i].value }); 
         
         await saveToLocal(); 
-        
-        // 直接觸發瀏覽器的上一頁，這樣會被上方的 handlePopState 捕捉到，並保留程式碼
         history.back();
     }
     
@@ -1146,10 +1138,10 @@
         else if (passCount === p.testCases.length) { finalStatus = `<span style="color:var(--success)">✅ 全數通過 (${passCount}/${p.testCases.length})</span>`; } 
         else { finalStatus = `<span style="color:var(--warning)">⚠️ 部分通過 (${passCount}/${p.testCases.length})</span>`; }
 
-        // === 完美修復：保存最新 30 筆，並立即上傳到 Firebase ===
-        if (!p.executionHistory) p.executionHistory = [];
-        p.executionHistory.unshift({ time: new Date().toLocaleString('zh-TW', { hour12: false }), lang: lang, code: code, status: finalStatus });
-        if (p.executionHistory.length > 30) p.executionHistory.pop();
+        // === 完美修復：將紀錄寫入獨立的 executionHistories ===
+        if (!executionHistories[currentProbId]) executionHistories[currentProbId] = [];
+        executionHistories[currentProbId].unshift({ time: new Date().toLocaleString('zh-TW', { hour12: false }), lang: lang, code: code, status: finalStatus });
+        if (executionHistories[currentProbId].length > 30) executionHistories[currentProbId].pop();
         
         await saveToLocal(); 
         
@@ -1157,12 +1149,15 @@
     }
 
     function openHistoryModal() {
-        const p = db.problems.find(x => x.id === currentProbId);
-        const listDiv = document.getElementById('historyList'); document.getElementById('historyCodeView').value = ""; listDiv.innerHTML = "";
-        if (!p.executionHistory || p.executionHistory.length === 0) {
+        const histList = executionHistories[currentProbId] || [];
+        const listDiv = document.getElementById('historyList'); 
+        document.getElementById('historyCodeView').value = ""; 
+        listDiv.innerHTML = "";
+        
+        if (histList.length === 0) {
             listDiv.innerHTML = "<div style='color:#666; text-align:center; padding:30px; font-size:1.1rem;'>尚無執行紀錄</div>";
         } else {
-            p.executionHistory.forEach((hist, idx) => {
+            histList.forEach((hist, idx) => {
                 const item = document.createElement('div'); item.className = 'hist-item';
                 item.onclick = () => { document.querySelectorAll('.hist-item').forEach(el => el.classList.remove('active')); item.classList.add('active'); document.getElementById('historyCodeView').value = hist.code; };
                 item.innerHTML = `<div style="font-size:0.85rem; color:#aaa;">${hist.time} <span style="color:var(--accent)">[${hist.lang}]</span></div><div style="margin-top:5px; font-weight:bold;">${hist.status}</div>`;
@@ -1175,7 +1170,8 @@
 
     function clearProblemHistory() {
         if (!confirm("確定要清空這題的所有歷史執行紀錄嗎？此動作無法復原。")) return;
-        const p = db.problems.find(x => x.id === currentProbId); p.executionHistory = []; saveToLocal(); openHistoryModal();
+        executionHistories[currentProbId] = []; 
+        saveToLocal().then(() => openHistoryModal());
     }
 
     function openAIHelperModal() {
