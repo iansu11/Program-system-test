@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>解題系統 V57 (畫面分離與新分頁修復版)</title>
+    <title>解題系統 V57 (純帳號與新分頁版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
     
     <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
@@ -12,6 +12,7 @@
 
     <style>
         :root {
+            /* === V57: Color Variables === */
             --bg-page-light: #f3f4f6;
             --bg-pane-light: #e0e0e0;   
             --text-pane-light: #1f2937; 
@@ -47,7 +48,7 @@
 
         /* === 畫面 1: 單純登入頁面 === */
         #view-login {
-            display: flex; 
+            display: none; /* 預設隱藏，由 JS 控制顯示 */
             flex-direction: column;
             align-items: center;
             justify-content: center;
@@ -69,6 +70,7 @@
             color: white;
             text-align: center;
             z-index: 1000;
+            overflow-y: auto;
         }
 
         .portal-container {
@@ -80,6 +82,7 @@
             box-shadow: 0 20px 50px rgba(0,0,0,0.3);
             max-width: 900px;
             width: 90%;
+            margin: 20px 0;
         }
 
         .portal-grid {
@@ -115,8 +118,8 @@
 
         /* 登入框專屬輸入樣式 */
         .auth-input {
-            width: 100%; margin-bottom: 12px; padding: 12px; border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.3); color: white; box-sizing: border-box; font-size: 1rem;
+            width: 100%; margin-bottom: 15px; padding: 15px; border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.3); color: white; box-sizing: border-box; font-size: 1.1rem;
         }
         .auth-input::placeholder { color: #bbb; }
         .auth-input:focus { outline: 2px solid #60a5fa; background: rgba(0,0,0,0.5); }
@@ -264,24 +267,18 @@
 <body>
 
 <div id="view-login">
-    <div class="portal-container" style="max-width: 420px; padding: 40px 30px;">
-        <h1 style="font-size: 2.5rem; margin-bottom: 10px; letter-spacing: 2px;">🚀 解題系統</h1>
-        <p style="font-size: 1.1rem; opacity: 0.9; margin-bottom: 25px;">請登入您的專屬帳號以繼續</p>
+    <div class="portal-container" style="max-width: 450px; padding: 50px 40px;">
+        <h1 style="font-size: 2.8rem; margin-bottom: 10px; letter-spacing: 2px;">🚀 解題系統</h1>
+        <p style="font-size: 1.1rem; opacity: 0.9; margin-bottom: 30px;">請登入或註冊您的專屬帳號</p>
         
         <div style="text-align: left;">
-            <input type="email" id="emailInput" class="auth-input" placeholder="電子郵件信箱">
-            <input type="password" id="passwordInput" class="auth-input" placeholder="密碼 (至少 6 個字元)">
+            <input type="email" id="emailInput" class="auth-input" placeholder="📧 電子郵件信箱">
+            <input type="password" id="passwordInput" class="auth-input" placeholder="🔑 密碼 (至少 6 個字元)">
             
-            <div style="display:flex; gap:10px; justify-content:center; margin-top: 10px;">
-                <button class="btn btn-success" style="flex:1; padding: 12px; font-size: 1rem;" onclick="loginWithEmail()">登入</button>
-                <button class="btn btn-outline" style="flex:1; color:white; border-color:white; padding: 12px; font-size: 1rem;" onclick="registerWithEmail()">註冊帳號</button>
+            <div style="display:flex; gap:15px; justify-content:center; margin-top: 20px;">
+                <button class="btn btn-success" style="flex:1; padding: 15px; font-size: 1.1rem;" onclick="loginWithEmail()">登入系統</button>
+                <button class="btn btn-outline" style="flex:1; color:white; border-color:white; padding: 15px; font-size: 1.1rem;" onclick="registerWithEmail()">註冊新帳號</button>
             </div>
-            
-            <hr style="border-color: rgba(255,255,255,0.1); margin: 25px 0;">
-            
-            <button class="btn btn-primary" style="width: 100%; border-radius: 50px; padding: 12px; font-size: 1rem;" onclick="loginWithGoogle()">
-                🌐 使用 Google 帳號快速登入
-            </button>
         </div>
     </div>
 </div>
@@ -290,16 +287,16 @@
     <div class="portal-container">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.2);">
             <div style="display:flex; align-items:center; gap:15px;">
-                <img id="user-photo" src="" style="width:50px; height:50px; border-radius:50%; border:2px solid white; object-fit:cover;">
                 <div style="text-align:left;">
-                    <div id="user-name" style="font-weight:bold; font-size:1.2rem; color:white;"></div>
-                    <div style="font-size:0.85rem; color:#a7f3d0;">🟢 雲端同步已開啟</div>
+                    <div style="font-size:0.9rem; color:#ccc;">目前登入身分：</div>
+                    <div id="user-name" style="font-weight:bold; font-size:1.3rem; color:white; letter-spacing: 1px;"></div>
                 </div>
             </div>
-            <button class="btn btn-outline btn-sm" style="color:white; border-color:white;" onclick="logout()">登出</button>
+            <button class="btn btn-outline btn-sm" style="color:white; border-color:white; padding: 8px 15px;" onclick="logout()">登出系統</button>
         </div>
 
-        <h2 style="font-size: 2rem; margin-bottom: 10px; margin-top: 0; letter-spacing: 1px;">請選擇題庫大廳</h2>
+        <h2 style="font-size: 2rem; margin-bottom: 10px; margin-top: 0; letter-spacing: 1px;">請選擇題庫</h2>
+        <p style="color: #a7f3d0; margin-bottom: 30px;">🟢 雲端同步已開啟，作答進度將自動保存</p>
         
         <div class="portal-grid">
             <button class="bank-btn" onclick="fetchAndLoadBank('program-1.json')">
@@ -519,7 +516,23 @@
 
 <script>
     // ==========================================
-    // 1. Firebase 核心設定 (已套用您的專屬 Key)
+    // 0. 本地預先載入 (Eager Load) - 修復新分頁閃退關鍵
+    // ==========================================
+    let db = { categories: [], problems: [] };
+    let currentBankFile = ""; 
+    
+    // 一開啟網頁，立刻從瀏覽器共通快取讀取題庫，不等 Firebase 就能瞬間顯示題目
+    const localData = localStorage.getItem('oj_v15_data');
+    if (localData) {
+        try { db = JSON.parse(localData); } catch(e){}
+    }
+    const localBank = localStorage.getItem('oj_v15_bank_name');
+    if (localBank) {
+        currentBankFile = localBank;
+    }
+
+    // ==========================================
+    // 1. Firebase 核心設定
     // ==========================================
     const firebaseConfig = {
         apiKey: "AIzaSyD_DeIkusZN7r92UNE_yrR509IC_ZCa21U",
@@ -537,7 +550,7 @@
     let currentUser = null;
 
     // ==========================================
-    // 2. 帳號系統：信箱密碼與 Google 雙重登入
+    // 2. 純信箱/密碼帳號系統
     // ==========================================
     function loginWithEmail() {
         const email = document.getElementById('emailInput').value.trim();
@@ -563,16 +576,11 @@
             alert("✅ 註冊成功！系統已自動為您登入。");
         }).catch(err => {
             if (err.code === 'auth/email-already-in-use') {
-                alert("註冊失敗：這個電子郵件已經被註冊過了，請直接點擊「登入」。");
+                alert("註冊失敗：這個電子郵件已經被註冊過了，請直接點擊「登入系統」。");
             } else {
                 alert("註冊失敗：" + err.message);
             }
         });
-    }
-
-    function loginWithGoogle() {
-        const provider = new firebase.auth.GoogleAuthProvider();
-        auth.signInWithPopup(provider).catch(err => alert("Google 登入失敗：" + err.message));
     }
 
     function logout() {
@@ -580,27 +588,24 @@
             auth.signOut().then(() => {
                 localStorage.removeItem('oj_v15_data');
                 localStorage.removeItem('oj_v15_bank_name');
-                // 登出時清空網址參數，確保下次登入不被干擾
                 window.location.href = window.location.href.split('?')[0]; 
             });
         }
     }
 
-    // === 重要修正：嚴格管控載入順序，確保不會閃退回大廳 ===
     auth.onAuthStateChanged(async (user) => {
         if (user) {
             currentUser = user;
+            // 顯示信箱作為名稱
+            document.getElementById('user-name').innerText = user.email;
             
-            // 顯示名稱 (如果是信箱註冊，取信箱前綴)
-            let displayName = user.displayName || user.email.split('@')[0];
-            document.getElementById('user-name').innerText = displayName;
-            document.getElementById('user-photo').src = user.photoURL || `https://ui-avatars.com/api/?name=${displayName}&background=random`;
-            
-            // 登入成功，去雲端抓資料
+            // 登入成功，先檢查是不是在新分頁開題目
+            checkUrlAndLoad(); 
+            // 接著去雲端同步最新進度
             await loadUserDataFromCloud();
         } else {
             currentUser = null;
-            // 未登入，一律強制停在登入畫面
+            // 未登入，強制停在單純登入畫面
             showView('view-login');
         }
     });
@@ -623,40 +628,49 @@
                 if (data.bankName) {
                     currentBankFile = data.bankName;
                     localStorage.setItem('oj_v15_bank_name', data.bankName);
-                    document.getElementById('currentBankName').innerText = "📂 目前題庫: " + data.bankName;
+                    if(document.getElementById('currentBankName')) {
+                        document.getElementById('currentBankName').innerText = "📂 目前題庫: " + data.bankName;
+                    }
                 }
             } else {
-                // 如果是全新帳號，清空本機殘留資料避免汙染
+                // 全新帳號，清空本機殘留
                 db = { categories: [], problems: [] };
                 currentBankFile = "";
             }
-            checkUrlAndLoad();
+            
+            // 再次檢查確保畫面是最新狀態
+            const urlParams = new URLSearchParams(window.location.search);
+            if (!urlParams.get('probId') && db.categories && db.categories.length > 0 && currentBankFile) {
+                showView('view-categories');
+            }
         } catch (e) {
             console.error("無法讀取雲端資料：", e);
-            checkUrlAndLoad(); 
         }
     }
 
-    // === 重要修正：專門處理新分頁打開題目的機制 ===
+    // 智能判斷進入哪個畫面
     function checkUrlAndLoad() {
         const urlParams = new URLSearchParams(window.location.search);
         const probIdParam = urlParams.get('probId');
 
         if (probIdParam) {
-            // 情況A：在新分頁直接打開特定題目
-            if (db.problems && db.problems.length > 0) {
+            // 新分頁開啟題目：利用 Eager Load 的 db 直接進入作答區
+            const p = db.problems.find(x => x.id === probIdParam);
+            if (p) {
                 history.replaceState({ view: 'workspace', probId: probIdParam, fromAdmin: false }, '', window.location.href);
                 _enterWorkspaceInternal(probIdParam, false);
             } else {
-                alert("無法載入題目！請先從大廳選擇正確的題庫。");
+                alert("找不到該題目！請重新從大廳選擇題庫。");
                 showView('view-portal');
             }
         } else if (db.categories && db.categories.length > 0 && currentBankFile) {
-            // 情況B：已經有載入題庫的進度，直接回分類頁
+            // 已有題庫資料，進入分類
+            document.getElementById('currentBankName').innerText = "📂 目前題庫: " + currentBankFile;
             history.replaceState({ view: 'categories' }, '', window.location.pathname);
-            finishLoading();
+            renderCategoryList();
+            showView('view-categories');
         } else {
-            // 情況C：剛登入，還沒選過題庫，停在選題大廳
+            // 剛登入，進入題庫大廳
             history.replaceState({ view: 'portal' }, '', window.location.pathname);
             showView('view-portal');
         }
@@ -675,13 +689,11 @@
     }
 
     // ==========================================
-    // 4. 原有解題系統核心邏輯 
+    // 4. 原有解題系統核心邏輯
     // ==========================================
-    let db = { categories: [], problems: [] };
     let currentCatId = null;
     let currentProbId = null;
     let isLocalMode = false;
-    let currentBankFile = ""; 
     let pendingRestoreFileName = ""; 
     
     const defaultTemplates = {
@@ -726,21 +738,16 @@
             
             if (response.ok) {
                 db = await response.json();
-                currentBankFile = jsonFile;
+                currentBankFile = btnText;
                 localStorage.setItem('oj_v15_bank_name', btnText);
                 document.getElementById('currentBankName').innerText = "📂 目前題庫: " + btnText;
                 
                 saveToLocal(); 
                 history.pushState({ view: 'categories' }, '', window.location.pathname);
-                finishLoading();
+                renderCategoryList();
+                showView('view-categories');
             } else { throw new Error("伺服器回傳狀態：" + response.status); }
         } catch (err) { alert("載入失敗！請確認 GitHub 檔案是否存在\n\n詳細錯誤：" + err.message); }
-    }
-
-    function finishLoading() {
-        window.addEventListener('popstate', handlePopState);
-        renderCategoryList();
-        showView('view-categories');
     }
 
     function backToPortal() {
@@ -753,24 +760,28 @@
         if (confirm("⚠️ 警告：這將會清除您目前的所有作答紀錄，並重新從伺服器下載題庫。確定嗎？")) {
             const bankName = localStorage.getItem('oj_v15_bank_name') || currentBankFile;
             window.event = { target: { closest: () => ({ querySelector: () => ({ innerText: bankName }) }) } };
-            fetchAndLoadBank(currentBankFile);
+            // 自動找原檔名，這裡簡易用映射
+            let targetFile = "program-1.json";
+            if (bankName.includes("物件導向")) targetFile = "program-oop.json";
+            if (bankName.includes("進階")) targetFile = "advanced.json";
+            fetchAndLoadBank(targetFile);
         }
     }
 
     function hardResetAll() {
         if (confirm("⚠️ 警告：這將會清除所有資料，讓系統回到「完全空白」狀態！確定嗎？")) {
             db = { categories: [], problems: [] };
-            currentBankFile = "自訂新題庫";
-            localStorage.setItem('oj_v15_bank_name', '自訂新題庫 (空白)');
+            currentBankFile = "自訂新題庫 (空白)";
+            localStorage.setItem('oj_v15_bank_name', currentBankFile);
             saveToLocal();
-            document.getElementById('currentBankName').innerText = "📂 自訂新題庫 ";
+            document.getElementById('currentBankName').innerText = "📂 " + currentBankFile;
             renderCategoryList();
         }
     }
 
     function handlePopState(event) {
         const state = event.state;
-        if (!currentUser) return; // 未登入不處理路由
+        if (!currentUser) return; 
         if (!state || state.view === 'portal') { showView('view-portal'); return; }
         if (state.view === 'categories') { currentCatId = null; renderCategoryList(); showView('view-categories'); } 
         else if (state.view === 'problem-list') { currentCatId = state.catId; renderProblemList(); showView('view-problem-list'); } 
@@ -838,19 +849,10 @@
 
     function openCategory(id) { history.pushState({ view: 'problem-list', catId: id }, '', ''); currentCatId = id; renderProblemList(); showView('view-problem-list'); }
 
-    function enterWorkspace(id, fromAdmin = false) {
-        history.pushState({ view: 'workspace', probId: id, fromAdmin: fromAdmin }, '', '');
-        _enterWorkspaceInternal(id, fromAdmin);
-    }
-
     function _enterWorkspaceInternal(id, fromAdmin = false) {
         currentProbId = id;
         const p = db.problems.find(x => x.id === id);
-        if (!p) {
-            alert("找不到該題目！請回大廳重新選擇題庫。");
-            showView('view-portal');
-            return;
-        }
+        if (!p) return;
         if (p.tpl_cpp === undefined) p.tpl_cpp = p.templateCode || defaultTemplates.cpp;
         if (p.tpl_python === undefined) p.tpl_python = defaultTemplates.python;
         if (!fromAdmin) { p.code_cpp = p.code_cpp || p.tpl_cpp; p.code_python = p.code_python || p.tpl_python; saveToLocal(); } 
@@ -934,7 +936,7 @@
                 const item = document.createElement('div');
                 item.className = 'prob-item'; item.setAttribute('draggable', isProbSortMode); item.dataset.id = p.id;
                 
-                // === 重要修復：點擊題目正常開新分頁 ===
+                // === 重要功能：點擊題目開新分頁 ===
                 item.onclick = (e) => { 
                     if(!isProbSortMode && !e.target.closest('button')) {
                         const baseUrl = window.location.href.split('?')[0]; 
@@ -1110,7 +1112,7 @@
         p.executionHistory.unshift({ time: new Date().toLocaleString('zh-TW', { hour12: false }), lang: lang, code: code, status: finalStatus });
         if (p.executionHistory.length > 50) p.executionHistory.pop();
         
-        saveToLocal(); // 自動上傳紀錄至雲端
+        saveToLocal(); 
         btn.disabled = false; btn.innerText = "▶️ 執行測試";
     }
 
