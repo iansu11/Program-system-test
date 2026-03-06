@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>解題系統 V57 (最終修復版)</title>
+    <title>解題系統 V57 (純帳號與紀錄保存修復版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
     
     <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
@@ -12,7 +12,6 @@
 
     <style>
         :root {
-            /* === V57: Color Variables === */
             --bg-page-light: #f3f4f6;
             --bg-pane-light: #e0e0e0;   
             --text-pane-light: #1f2937; 
@@ -592,13 +591,12 @@
         }
     }
 
+    // 嚴格管理登入後的資料載入順序，防閃退
     auth.onAuthStateChanged(async (user) => {
         if (user) {
             currentUser = user;
             document.getElementById('user-name').innerText = user.email;
-            
-            checkUrlAndLoad(); 
-            await loadUserDataFromCloud();
+            await loadUserDataFromCloud(); 
         } else {
             currentUser = null;
             showView('view-login');
@@ -632,13 +630,12 @@
                 currentBankFile = "";
             }
             
-            const urlParams = new URLSearchParams(window.location.search);
-            if (!urlParams.get('probId') && db.categories && db.categories.length > 0 && currentBankFile) {
-                if (currentView !== 'view-problem-list' && currentView !== 'view-workspace' && currentView !== 'view-admin') {
-                    showView('view-categories');
-                }
-            }
-        } catch (e) { console.error("無法讀取雲端資料：", e); }
+            // 資料確實載入完畢後，才進行畫面判定
+            checkUrlAndLoad();
+        } catch (e) { 
+            console.error("無法讀取雲端資料：", e); 
+            checkUrlAndLoad();
+        }
     }
 
     function checkUrlAndLoad() {
@@ -734,18 +731,38 @@
         else if (goingTo === 'admin') { currentProbId = state.probId; _goToAdminInternal(); }
     }
 
-    async function fetchAndLoadBank(jsonFile) {
+    async function fetchAndLoadBank(jsonFile, forceReset = false) {
         if(!currentUser) { alert("請先登入帳號！"); return; }
-        const btnText = event.target.closest('.bank-btn').querySelector('span').innerText;
+        
+        const btnNode = event && event.target ? event.target.closest('.bank-btn') : null;
+        const btnText = btnNode ? btnNode.querySelector('span').innerText : jsonFile;
+        
         try {
             const noCacheUrl = jsonFile + '?t=' + new Date().getTime();
             const response = await fetch(noCacheUrl);
             
             if (response.ok) {
-                db = await response.json();
+                const newDb = await response.json();
+                
+                // === 核心修復：合併舊有資料，避免帳號登入後點擊題庫把紀錄洗掉 ===
+                if (!forceReset && db && db.problems) {
+                    newDb.problems.forEach(newP => {
+                        const oldP = db.problems.find(p => p.id === newP.id);
+                        if (oldP) {
+                            if (oldP.executionHistory) newP.executionHistory = oldP.executionHistory;
+                            if (oldP.code_cpp !== undefined) newP.code_cpp = oldP.code_cpp;
+                            if (oldP.code_python !== undefined) newP.code_python = oldP.code_python;
+                            if (oldP.lastLang !== undefined) newP.lastLang = oldP.lastLang;
+                            if (oldP.modelAnswer !== undefined) newP.modelAnswer = oldP.modelAnswer;
+                        }
+                    });
+                }
+                
+                db = newDb;
                 currentBankFile = btnText;
                 localStorage.setItem('oj_v15_bank_name', btnText);
-                document.getElementById('currentBankName').innerText = "📂 目前題庫: " + btnText;
+                const bankTitle = document.getElementById('currentBankName');
+                if(bankTitle) bankTitle.innerText = "📂 目前題庫: " + btnText;
                 
                 await saveToLocal(); 
                 history.pushState({ view: 'categories' }, '', window.location.pathname);
@@ -762,11 +779,11 @@
 
     function resetCurrentBank() {
         if (!currentBankFile || currentBankFile.includes("自訂新題庫")) { alert("目前是空白狀態，無法重新載入。"); return; }
-        if (confirm("⚠️ 警告：這將會清除您目前的所有作答紀錄，並重新從伺服器下載題庫。確定嗎？")) {
+        if (confirm("⚠️ 警告：這將會清除您目前的所有作答與執行紀錄，並重新從伺服器下載題庫。確定嗎？")) {
             let targetFile = "program-1.json";
             if (currentBankFile.includes("物件導向")) targetFile = "program-oop.json";
             if (currentBankFile.includes("進階")) targetFile = "advanced.json";
-            fetchAndLoadBank(targetFile);
+            fetchAndLoadBank(targetFile, true); // true 代表強制重置不合併紀錄
         }
     }
 
@@ -851,7 +868,7 @@
         if (p.tpl_cpp === undefined) p.tpl_cpp = p.templateCode || defaultTemplates.cpp;
         if (p.tpl_python === undefined) p.tpl_python = defaultTemplates.python;
         
-        // 如果「不是」從設定頁面按返回回來的，一律還原成預設模板 (也就是每次開新分頁進來都不會保留上次亂打的內容)
+        // 如果「不是」從設定頁面按返回回來的，一律還原成預設模板
         if (!fromAdmin) { 
             p.code_cpp = p.tpl_cpp; 
             p.code_python = p.tpl_python; 
@@ -948,7 +965,6 @@
                 const item = document.createElement('div');
                 item.className = 'prob-item'; item.setAttribute('draggable', isProbSortMode); item.dataset.id = p.id;
                 
-                // === 開新分頁作答 ===
                 item.onclick = (e) => { 
                     if(!isProbSortMode && !e.target.closest('button')) {
                         const baseUrl = window.location.href.split('?')[0]; 
@@ -997,7 +1013,7 @@
     function changeWorkspaceLang() { 
         const p = db.problems.find(x => x.id === currentProbId); 
         const oldLang = p.lastLang || 'cpp';
-        p['code_' + oldLang] = editor.getValue(); // 切換語言前先暫存原本的
+        p['code_' + oldLang] = editor.getValue(); 
         
         const newLang = document.getElementById('langSelect').value; 
         p.lastLang = newLang; 
@@ -1130,12 +1146,11 @@
         else if (passCount === p.testCases.length) { finalStatus = `<span style="color:var(--success)">✅ 全數通過 (${passCount}/${p.testCases.length})</span>`; } 
         else { finalStatus = `<span style="color:var(--warning)">⚠️ 部分通過 (${passCount}/${p.testCases.length})</span>`; }
 
-        // === 修復：精準紀錄最新的 30 筆資料 ===
+        // === 完美修復：保存最新 30 筆，並立即上傳到 Firebase ===
         if (!p.executionHistory) p.executionHistory = [];
         p.executionHistory.unshift({ time: new Date().toLocaleString('zh-TW', { hour12: false }), lang: lang, code: code, status: finalStatus });
         if (p.executionHistory.length > 30) p.executionHistory.pop();
         
-        // 執行完強制上傳到 Firebase
         await saveToLocal(); 
         
         btn.disabled = false; btn.innerText = "▶️ 執行測試";
