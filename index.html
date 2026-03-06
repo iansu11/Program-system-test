@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>解題系統 V57 (純帳號與新分頁版)</title>
+    <title>解題系統 V57 (純帳號與動線修復版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
     
     <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
@@ -12,7 +12,6 @@
 
     <style>
         :root {
-            /* === V57: Color Variables === */
             --bg-page-light: #f3f4f6;
             --bg-pane-light: #e0e0e0;   
             --text-pane-light: #1f2937; 
@@ -48,7 +47,7 @@
 
         /* === 畫面 1: 單純登入頁面 === */
         #view-login {
-            display: none; /* 預設隱藏，由 JS 控制顯示 */
+            display: none; 
             flex-direction: column;
             align-items: center;
             justify-content: center;
@@ -269,7 +268,7 @@
 <div id="view-login">
     <div class="portal-container" style="max-width: 450px; padding: 50px 40px;">
         <h1 style="font-size: 2.8rem; margin-bottom: 10px; letter-spacing: 2px;">🚀 解題系統</h1>
-        <p style="font-size: 1.1rem; opacity: 0.9; margin-bottom: 30px;">請登入或註冊您的專屬帳號</p>
+        <p style="font-size: 1.1rem; opacity: 0.9; margin-bottom: 30px;">請輸入您的帳號密碼進行登入或註冊</p>
         
         <div style="text-align: left;">
             <input type="email" id="emailInput" class="auth-input" placeholder="📧 電子郵件信箱">
@@ -296,7 +295,7 @@
         </div>
 
         <h2 style="font-size: 2rem; margin-bottom: 10px; margin-top: 0; letter-spacing: 1px;">請選擇題庫</h2>
-        <p style="color: #a7f3d0; margin-bottom: 30px;">🟢 雲端同步已開啟，作答進度將自動保存</p>
+        <p style="color: #a7f3d0; margin-bottom: 30px;">🟢 雲端同步已開啟，執行紀錄將自動保存</p>
         
         <div class="portal-grid">
             <button class="bank-btn" onclick="fetchAndLoadBank('program-1.json')">
@@ -497,7 +496,7 @@
 <div id="historyModal" class="modal">
     <div class="modal-box" style="width:800px; max-width:95%; height:600px;">
         <h3 style="margin-top:0;">📜 歷史執行紀錄</h3>
-        <p style="color:#aaa; font-size:0.9rem; margin-top:-5px; margin-bottom:10px;">此處保留您每次點擊「執行測試」的程式碼紀錄（最多保留最新 50 筆）。</p>
+        <p style="color:#aaa; font-size:0.9rem; margin-top:-5px; margin-bottom:10px;">此處保留您每次點擊「執行測試」的紀錄（最多保留最新 30 筆）。</p>
         
         <div style="display:flex; flex:1; gap:15px; overflow:hidden;">
             <div style="flex:1; overflow-y:auto; background:#121212; border:1px solid #333; border-radius:6px; min-width:200px;" id="historyList"></div>
@@ -516,20 +515,18 @@
 
 <script>
     // ==========================================
-    // 0. 本地預先載入 (Eager Load) - 修復新分頁閃退關鍵
+    // 0. Eager Load (預先載入機制) - 徹底修復新分頁閃退問題
     // ==========================================
     let db = { categories: [], problems: [] };
     let currentBankFile = ""; 
-    
-    // 一開啟網頁，立刻從瀏覽器共通快取讀取題庫，不等 Firebase 就能瞬間顯示題目
+    let currentView = 'view-login'; // 全局追蹤目前所在的畫面，用於判斷上一頁邏輯
+
     const localData = localStorage.getItem('oj_v15_data');
     if (localData) {
         try { db = JSON.parse(localData); } catch(e){}
     }
     const localBank = localStorage.getItem('oj_v15_bank_name');
-    if (localBank) {
-        currentBankFile = localBank;
-    }
+    if (localBank) currentBankFile = localBank;
 
     // ==========================================
     // 1. Firebase 核心設定
@@ -550,7 +547,7 @@
     let currentUser = null;
 
     // ==========================================
-    // 2. 純信箱/密碼帳號系統
+    // 2. 純信箱/密碼帳號系統 (移除 Google 登入)
     // ==========================================
     function loginWithEmail() {
         const email = document.getElementById('emailInput').value.trim();
@@ -584,7 +581,7 @@
     }
 
     function logout() {
-        if(confirm("確定要登出嗎？未儲存的進度可能會遺失。")) {
+        if(confirm("確定要登出嗎？")) {
             auth.signOut().then(() => {
                 localStorage.removeItem('oj_v15_data');
                 localStorage.removeItem('oj_v15_bank_name');
@@ -596,16 +593,12 @@
     auth.onAuthStateChanged(async (user) => {
         if (user) {
             currentUser = user;
-            // 顯示信箱作為名稱
             document.getElementById('user-name').innerText = user.email;
             
-            // 登入成功，先檢查是不是在新分頁開題目
             checkUrlAndLoad(); 
-            // 接著去雲端同步最新進度
             await loadUserDataFromCloud();
         } else {
             currentUser = null;
-            // 未登入，強制停在單純登入畫面
             showView('view-login');
         }
     });
@@ -633,58 +626,57 @@
                     }
                 }
             } else {
-                // 全新帳號，清空本機殘留
                 db = { categories: [], problems: [] };
                 currentBankFile = "";
             }
             
-            // 再次檢查確保畫面是最新狀態
+            // 防呆機制：若是在大廳且雲端有資料，自動導向分類頁
             const urlParams = new URLSearchParams(window.location.search);
             if (!urlParams.get('probId') && db.categories && db.categories.length > 0 && currentBankFile) {
-                showView('view-categories');
+                if (currentView !== 'view-problem-list' && currentView !== 'view-workspace' && currentView !== 'view-admin') {
+                    showView('view-categories');
+                }
             }
-        } catch (e) {
-            console.error("無法讀取雲端資料：", e);
-        }
+        } catch (e) { console.error("無法讀取雲端資料：", e); }
     }
 
-    // 智能判斷進入哪個畫面
     function checkUrlAndLoad() {
         const urlParams = new URLSearchParams(window.location.search);
         const probIdParam = urlParams.get('probId');
 
         if (probIdParam) {
-            // 新分頁開啟題目：利用 Eager Load 的 db 直接進入作答區
+            // Eager Load 機制：一開新分頁立刻從快取抓出題目，防止閃退
             const p = db.problems.find(x => x.id === probIdParam);
             if (p) {
-                history.replaceState({ view: 'workspace', probId: probIdParam, fromAdmin: false }, '', window.location.href);
+                history.replaceState({ view: 'workspace', probId: probIdParam }, '', window.location.href);
                 _enterWorkspaceInternal(probIdParam, false);
             } else {
                 alert("找不到該題目！請重新從大廳選擇題庫。");
                 showView('view-portal');
             }
         } else if (db.categories && db.categories.length > 0 && currentBankFile) {
-            // 已有題庫資料，進入分類
             document.getElementById('currentBankName').innerText = "📂 目前題庫: " + currentBankFile;
             history.replaceState({ view: 'categories' }, '', window.location.pathname);
             renderCategoryList();
             showView('view-categories');
         } else {
-            // 剛登入，進入題庫大廳
             history.replaceState({ view: 'portal' }, '', window.location.pathname);
             showView('view-portal');
         }
     }
 
-    function saveToLocal() { 
+    // 將 saveToLocal 改為 async，保證資料確實存上雲端
+    async function saveToLocal() { 
         const dataString = JSON.stringify(db);
         localStorage.setItem('oj_v15_data', dataString); 
         if (currentUser) {
-            firestore.collection('users').doc(currentUser.uid).set({
-                dbData: dataString,
-                bankName: localStorage.getItem('oj_v15_bank_name') || currentBankFile,
-                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true }).catch(e => console.error("雲端同步失敗：", e));
+            try {
+                await firestore.collection('users').doc(currentUser.uid).set({
+                    dbData: dataString,
+                    bankName: localStorage.getItem('oj_v15_bank_name') || currentBankFile,
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            } catch(e) { console.error("雲端同步失敗：", e); }
         }
     }
 
@@ -714,12 +706,13 @@
         editor.session.setMode("ace/mode/c_cpp");
         editor.setFontSize(currentFontSize);
         editor.setShowPrintMargin(false);
+        
+        // 修正：不再於打字時一直存檔覆蓋雲端，而是暫存在記憶體中，等按下執行時再保存
         editor.session.on('change', function(delta) { 
              const p = db.problems.find(x => x.id === currentProbId);
              if(p) {
                  const lang = document.getElementById('langSelect').value;
                  p['code_' + lang] = editor.getValue();
-                 saveToLocal(); 
              }
         });
 
@@ -742,7 +735,7 @@
                 localStorage.setItem('oj_v15_bank_name', btnText);
                 document.getElementById('currentBankName').innerText = "📂 目前題庫: " + btnText;
                 
-                saveToLocal(); 
+                await saveToLocal(); 
                 history.pushState({ view: 'categories' }, '', window.location.pathname);
                 renderCategoryList();
                 showView('view-categories');
@@ -758,12 +751,9 @@
     function resetCurrentBank() {
         if (!currentBankFile || currentBankFile.includes("自訂新題庫")) { alert("目前是空白狀態，無法重新載入。"); return; }
         if (confirm("⚠️ 警告：這將會清除您目前的所有作答紀錄，並重新從伺服器下載題庫。確定嗎？")) {
-            const bankName = localStorage.getItem('oj_v15_bank_name') || currentBankFile;
-            window.event = { target: { closest: () => ({ querySelector: () => ({ innerText: bankName }) }) } };
-            // 自動找原檔名，這裡簡易用映射
             let targetFile = "program-1.json";
-            if (bankName.includes("物件導向")) targetFile = "program-oop.json";
-            if (bankName.includes("進階")) targetFile = "advanced.json";
+            if (currentBankFile.includes("物件導向")) targetFile = "program-oop.json";
+            if (currentBankFile.includes("進階")) targetFile = "advanced.json";
             fetchAndLoadBank(targetFile);
         }
     }
@@ -779,14 +769,23 @@
         }
     }
 
+    // === 重要修正：完美處理上一頁/下一頁的路由邏輯 ===
     function handlePopState(event) {
         const state = event.state;
         if (!currentUser) return; 
-        if (!state || state.view === 'portal') { showView('view-portal'); return; }
-        if (state.view === 'categories') { currentCatId = null; renderCategoryList(); showView('view-categories'); } 
-        else if (state.view === 'problem-list') { currentCatId = state.catId; renderProblemList(); showView('view-problem-list'); } 
-        else if (state.view === 'workspace') { currentProbId = state.probId; _enterWorkspaceInternal(state.probId, state.fromAdmin); } 
-        else if (state.view === 'admin') { currentProbId = state.probId; _goToAdminInternal(); }
+        
+        const goingTo = state ? state.view : 'portal';
+
+        if (goingTo === 'portal') { showView('view-portal'); }
+        else if (goingTo === 'categories') { currentCatId = null; renderCategoryList(); showView('view-categories'); } 
+        else if (goingTo === 'problem-list') { currentCatId = state.catId; renderProblemList(); showView('view-problem-list'); } 
+        else if (goingTo === 'workspace') { 
+            // 判斷是不是從「設定頁面」按上一頁回來的
+            const fromAdmin = (currentView === 'view-admin');
+            currentProbId = state.probId; 
+            _enterWorkspaceInternal(state.probId, fromAdmin); 
+        } 
+        else if (goingTo === 'admin') { currentProbId = state.probId; _goToAdminInternal(); }
     }
 
     function enableTabInTextarea(id) {
@@ -830,6 +829,7 @@
     }
 
     function showView(viewId) {
+        currentView = viewId; // 記錄當前頁面，讓路由能判斷從哪裡返回
         isCatSortMode = false; isProbSortMode = false; updateSortUI();
         if (viewId === 'view-categories' || viewId === 'view-problem-list') document.body.classList.add('light-mode'); else document.body.classList.remove('light-mode');
         ['view-login', 'view-portal', 'view-categories', 'view-problem-list', 'view-workspace', 'view-admin'].forEach(id => { 
@@ -849,14 +849,20 @@
 
     function openCategory(id) { history.pushState({ view: 'problem-list', catId: id }, '', ''); currentCatId = id; renderProblemList(); showView('view-problem-list'); }
 
+    // === 重要修正：嚴格控制何時保留作答進度 ===
     function _enterWorkspaceInternal(id, fromAdmin = false) {
         currentProbId = id;
         const p = db.problems.find(x => x.id === id);
         if (!p) return;
+        
         if (p.tpl_cpp === undefined) p.tpl_cpp = p.templateCode || defaultTemplates.cpp;
         if (p.tpl_python === undefined) p.tpl_python = defaultTemplates.python;
-        if (!fromAdmin) { p.code_cpp = p.code_cpp || p.tpl_cpp; p.code_python = p.code_python || p.tpl_python; saveToLocal(); } 
-        else { if (p.code_cpp === undefined) p.code_cpp = p.tpl_cpp; if (p.code_python === undefined) p.code_python = p.tpl_python; }
+        
+        if (!fromAdmin) { 
+            // 只要不是從設定頁面返回，一律將作答區「還原成預設模板」
+            p.code_cpp = p.tpl_cpp; 
+            p.code_python = p.tpl_python; 
+        } 
         
         document.getElementById('wsTitle').innerText = p.title;
         document.getElementById('wsDesc').innerHTML = parseContent(p.desc || "");
@@ -865,7 +871,15 @@
         showView('view-workspace');
     }
 
-    function goToAdmin() { history.pushState({ view: 'admin', probId: currentProbId }, '', ''); _goToAdminInternal(); }
+    function goToAdmin() { 
+        // 進入設定前，先把目前寫到一半的 code 塞回 p 裡保存
+        const lang = document.getElementById('langSelect').value;
+        const p = db.problems.find(x => x.id === currentProbId);
+        if(p) p['code_' + lang] = editor.getValue();
+        
+        history.pushState({ view: 'admin', probId: currentProbId }, '', ''); 
+        _goToAdminInternal(); 
+    }
 
     function _goToAdminInternal() {
         const p = db.problems.find(x => x.id === currentProbId); 
@@ -936,7 +950,7 @@
                 const item = document.createElement('div');
                 item.className = 'prob-item'; item.setAttribute('draggable', isProbSortMode); item.dataset.id = p.id;
                 
-                // === 重要功能：點擊題目開新分頁 ===
+                // === 新分頁開啟題目 ===
                 item.onclick = (e) => { 
                     if(!isProbSortMode && !e.target.closest('button')) {
                         const baseUrl = window.location.href.split('?')[0]; 
@@ -1018,14 +1032,19 @@
         adminTempTemplates[currentAdminLang] = currentText; currentAdminLang = newLang; document.getElementById('editTemplate').value = adminTempTemplates[newLang];
     }
 
-    function saveAdminAndBack() { 
+    // === 修正：儲存並返回按鈕 ===
+    async function saveAdminAndBack() { 
         const p = db.problems.find(x => x.id === currentProbId); 
         p.title = document.getElementById('editTitle').value; p.desc = document.getElementById('editDesc').value; 
         adminTempTemplates[currentAdminLang] = document.getElementById('editTemplate').value;
         p.tpl_cpp = adminTempTemplates.cpp; p.tpl_python = adminTempTemplates.python;
         const inputs = document.querySelectorAll('.tc-input'); const outputs = document.querySelectorAll('.tc-output'); 
         p.testCases = []; for(let i=0; i<inputs.length; i++) p.testCases.push({ input: inputs[i].value, output: outputs[i].value }); 
-        saveToLocal(); enterWorkspace(currentProbId, true); 
+        
+        await saveToLocal(); 
+        
+        // 呼叫瀏覽器原生上一頁，精準回到作答區，且會保留程式碼
+        history.back();
     }
     
     function insertImageToDesc() { const url = prompt("請輸入圖片網址 (URL)：", "https://"); if (url) { const descArea = document.getElementById('editDesc'); descArea.value += `\n\n![圖片](${url})\n\n`; descArea.focus(); } }
@@ -1108,11 +1127,14 @@
         else if (passCount === p.testCases.length) { finalStatus = `<span style="color:var(--success)">✅ 全數通過 (${passCount}/${p.testCases.length})</span>`; } 
         else { finalStatus = `<span style="color:var(--warning)">⚠️ 部分通過 (${passCount}/${p.testCases.length})</span>`; }
 
+        // === 修正：保存最新的 30 筆紀錄 ===
         if (!p.executionHistory) p.executionHistory = [];
         p.executionHistory.unshift({ time: new Date().toLocaleString('zh-TW', { hour12: false }), lang: lang, code: code, status: finalStatus });
-        if (p.executionHistory.length > 50) p.executionHistory.pop();
+        if (p.executionHistory.length > 30) p.executionHistory.pop();
         
-        saveToLocal(); 
+        // 確保執行完立即同步到雲端
+        await saveToLocal(); 
+        
         btn.disabled = false; btn.innerText = "▶️ 執行測試";
     }
 
